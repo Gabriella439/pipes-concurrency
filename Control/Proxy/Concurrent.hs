@@ -53,11 +53,12 @@ import Control.Concurrent.STM (atomically, STM)
 import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
-import Data.IORef (newIORef, readIORef, mkWeakIORef, IORef)
+import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
 
--- | Spawn a mailbox of the specified 'Size' that has an 'Input' and 'Output'
+{-| Spawn a mailbox of the specified 'Size' that has an 'Input' and 'Output' end
+-}
 spawn :: Size -> IO (Input a, Output a)
 spawn size = do
     (read, write) <- case size of
