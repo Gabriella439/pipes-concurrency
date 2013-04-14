@@ -1,0 +1,31 @@
+Name: pipes-concurrency
+Version: 1.0.0
+Cabal-Version: >=1.8.0.2
+Build-Type: Simple
+License: BSD3
+License-File: LICENSE
+Copyright: 2013 Gabriel Gonzalez
+Author: Gabriel Gonzalez
+Maintainer: Gabriel439@gmail.com
+Bug-Reports: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library/issues
+Synopsis: Concurrency for the pipes ecosystem
+Description: Light-weight concurrency primitives for pipes
+  .
+  Import "Control.Proxy.Concurrent" to use the library.
+  .
+  Read "Control.Proxy.Concurrent.Tutorial" for an tutorial.
+Category: Control, Pipes, Proxies, Concurrency
+Source-Repository head
+    Type: git
+    Location: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library
+
+Library
+    Build-Depends:
+        base         >= 4       && < 5  ,
+        pipes        >= 3.0     && < 3.3,
+        stm          >= 2.4     && < 2.5,
+        transformers >= 0.2.0.0 && < 0.4
+    Exposed-Modules:
+        Control.Proxy.Concurrent,
+        Control.Proxy.Concurrent.Tutorial
+    GHC-Options: -O2
