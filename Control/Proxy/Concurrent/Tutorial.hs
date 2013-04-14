@@ -30,7 +30,6 @@ module Control.Proxy.Concurrent.Tutorial (
     -- $appendix
     ) where
 
-import Control.Exception (BlockedIndefinitelyOnSTM)
 import Control.Proxy
 import Control.Proxy.Concurrent
 
@@ -443,23 +442,15 @@ import Control.Proxy.Concurrent
 -}
 
 {- $safety
-    'STM' veterans will notice that @pipes-concurrency@ never throws a
-    'BlockedIndefinitelyOnSTM' exception, or any other concurrency exception.
-    @pipes-concurrency@ protects against these exceptions by guaranteeing that
-    'send' and 'recv' never block on the mailbox when the opposing end is
-    garbage collected.  This safe-guard eliminates the most common class of
-    'STM' programming bugs.
+    @pipes-concurrency@ avoids deadlocks, because 'send' and 'recv' always
+    cleanly return before triggering a deadlock.  This behavior works even in
+    complicated scenarios like:
 
-    @pipes-concurrency@ safely protects against these exceptions in all cases,
-    including more complicated scenarios such as:
+    * cyclic graphs of connected mailboxes,
 
-    * multiple readers and multiple writers to the same mailbox,
+    * multiple readers and multiple writers to the same mailbox, and
 
-    * large graphs of connected mailboxes,
-
-    * dynamically adding or garbage collecting mailboxes, and
-
-    * dynamically adding or garbage collecting references to mailboxes.
+    * dynamically adding or garbage collecting mailboxes.
 -}
 
 {- $conclusion

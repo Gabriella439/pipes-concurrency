@@ -33,7 +33,6 @@ module Control.Proxy.Concurrent (
     Output,
 
     -- * Send and receive messages
-    -- $sendrcv
     send,
     recv,
 
@@ -57,9 +56,6 @@ import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef, IORef)
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
-
--- Documentation
-import Control.Exception (BlockedIndefinitelyOnSTM)
 
 {-| Spawn an 'Input' \/ 'Output' pair that communicate using a mailbox of the
     specified 'Size'
@@ -103,8 +99,7 @@ spawn size = do
        will not consume the 'Nothing'.
 
        The 'write' must be protected with the "pure ()" fallback so that it does
-       not trigger an BlockedIndefinitelyOnSTM exception if the 'Output' end has
-       also been garbage collected.
+       not deadlock if the 'Output' end has also been garbage collected.
     -}
     rUp  <- newIORef ()
     mkWeakIORef rUp (S.atomically $ write Nothing <|> pure ())
@@ -168,11 +163,6 @@ newtype Output a = Output {
         * Fails and returns 'Nothing' if the 'Input' is garbage collected.
     -}
     recv :: S.STM (Maybe a) }
-
-{- $sendrcv
-    The 'send' and 'recv' commands never throw a 'BlockedIndefinitelyOnSTM'
-    exception.
--}
 
 {-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
 

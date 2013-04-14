@@ -9,7 +9,16 @@ Author: Gabriel Gonzalez
 Maintainer: Gabriel439@gmail.com
 Bug-Reports: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library/issues
 Synopsis: Concurrency for the pipes ecosystem
-Description: Light-weight concurrency primitives for pipes
+Description: This library provides light-weight concurrency primitives for
+  pipes, with the following features:
+  .
+  * /Simple API/: Use only five functions
+  .
+  * /Deadlock Safety/: Detect and avoid deadlocks
+  .
+  * /Flexibility/: Build many-to-many communication topologies
+  .
+  * /Dynamic Graphs/: Add or remove readers and writers at any time
   .
   Import "Control.Proxy.Concurrent" to use the library.
   .
