@@ -26,7 +26,7 @@
 -}
 
 module Control.Proxy.Concurrent (
-    -- * Spawn Inputs and Outputs
+    -- * Spawn mailboxes
     spawn,
     Size(..),
     Input,
@@ -57,9 +57,7 @@ import Data.IORef (newIORef, readIORef, mkWeakIORef, IORef)
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
 
-{-| Spawn an 'Input' \/ 'Output' pair that communicate using a mailbox of the
-    specified 'Size'
--}
+-- | Spawn a mailbox of the specified 'Size' that has an 'Input' and 'Output'
 spawn :: Size -> IO (Input a, Output a)
 spawn size = do
     (read, write) <- case size of
@@ -138,29 +136,30 @@ data Size
     -- | Store only a 'Single' message (like @Bounded 1@, but more efficient)
     | Single
 
--- | Receives messages for the associated 'Output'
+-- | Accepts messages for the mailbox
 newtype Input a = Input {
-    {-| Send a message to the 'Input' end
+    {-| Send a message to the mailbox
 
-        * Retries if the mailbox is full and the associated 'Output' is not
-          garbage collected.
+        * Fails and returns 'False' if the mailbox's 'Output' has been garbage
+          collected (even if the mailbox is not full), otherwise it:
 
-        * Succeeds and returns 'True' if the mailbox is not full.
+        * Retries if the mailbox is full, or:
 
-        * Fails and returns 'False' if the 'Output' is garbage collected.
+        * Succeeds if the mailbox is not full and returns 'True'.
     -}
     send :: a -> S.STM Bool }
 
--- | Produces all messages sent to the associated 'Input'
+-- | Retrieves messages from the mailbox
 newtype Output a = Output {
-    {-| Receive a message from the 'Output' end
+    {-| Receive a message from the mailbox
 
-        * Retries if the mailbox is empty and the associated 'Input' is not
-          garbage collected.
+        * Succeeds and returns a 'Just' if the mailbox is not empty, otherwise
+          it:
 
-        * Succeeds and returns a 'Just' if the mailbox is not empty.
+        * Retries if mailbox's 'Input' has not been garbage collected, or:
 
-        * Fails and returns 'Nothing' if the 'Input' is garbage collected.
+        * Fails if the mailbox's 'Input' has been garbage collected and returns
+          'Nothing'.
     -}
     recv :: S.STM (Maybe a) }
 
