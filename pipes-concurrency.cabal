@@ -14,7 +14,7 @@ Description: This library provides light-weight concurrency primitives for
   .
   * /Simple API/: Use only five functions
   .
-  * /Deadlock Safety/: Detect and avoid deadlocks
+  * /Deadlock Safety/: Automatically avoid concurrency deadlocks
   .
   * /Flexibility/: Build many-to-many communication topologies
   .
