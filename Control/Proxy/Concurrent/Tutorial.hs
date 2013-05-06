@@ -2,6 +2,9 @@
 
     This tutorial assumes that you have read the @pipes@ tutorial in
     @Control.Proxy.Tutorial@.
+
+    I've condensed all the code examples into self-contained code listings in
+    the Appendix section that you can use to follow along.
 -}
 
 module Control.Proxy.Concurrent.Tutorial (
@@ -145,7 +148,7 @@ import Control.Proxy.Concurrent
 > main = do
 >     (input, output) <- spawn Unbounded
 >     forkIO $ do runProxy $ acidRain >-> sendD input
->                 performGC  -- I'll explain 'performGC' below
+>                 performGC
 >     forkIO $ do runProxy $ user     >-> sendD input
 >                 performGC
 >     runProxy $ runMaybeK $ evalStateK 100 $ recvS output >-> handler
@@ -198,8 +201,8 @@ import Control.Proxy.Concurrent
 >                      performGC
 >     mapM_ wait (a:as)
 
-    The above example uses @Control.Concurrent.Async@ from the @async@ to fork
-    each thread and wait for all of them to terminate:
+    The above example uses @Control.Concurrent.Async@ from the @async@ package
+    to fork each thread and wait for all of them to terminate:
 
 > $ ./work
 > Worker #2: Processed 3
@@ -305,7 +308,9 @@ import Control.Proxy.Concurrent
     This is why we have to insert 'performGC' calls whenever we release a
     reference to either the 'Input' or 'Output'.  Without these calls we cannot
     guarantee that the garbage collector will trigger and notify the opposing
-    end if the last reference was released.
+    end if the last reference was released.  If you forget to insert a
+    'performGC' call then termination will delay until the next garbage
+    collection cycle.
 -}
 
 {- $mailbox
@@ -459,7 +464,7 @@ import Control.Proxy.Concurrent
 
     * Fork one pipeline per deterministic behavior
 
-    * Communicate between concurrent pipelines using @pipes-stm@
+    * Communicate between concurrent pipelines using @pipes-concurrency@
 
     This promotes an actor-style approach to concurrent programming where
     pipelines behave like processes and mailboxes behave like ... mailboxes.
