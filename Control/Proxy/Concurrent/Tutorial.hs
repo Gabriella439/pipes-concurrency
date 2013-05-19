@@ -20,6 +20,9 @@ module Control.Proxy.Concurrent.Tutorial (
     -- * Mailbox Sizes
     -- $mailbox
 
+    -- * Signals
+    -- $signals
+
     -- * Callbacks
     -- $callback
 
@@ -97,10 +100,10 @@ import Control.Proxy.Concurrent
     To merge these sources, we 'spawn' a new FIFO mailbox which we will use to
     merge the two streams of asynchronous events:
 
-> spawn :: Size -> IO (Input a, Output a)
+> spawn :: Buffer a -> IO (Input a, Output a)
 
-    'spawn' takes a mailbox 'Size' as an argument, and we specify that we want
-    our mailbox to store an 'Unbounded' number of message.  'spawn' creates
+    'spawn' takes a mailbox 'Buffer' as an argument, and we specify that we want
+    our mailbox to store an 'Unbounded' number of messages.  'spawn' creates
     this mailbox in the background and then returns two values:
 
     * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
@@ -318,8 +321,8 @@ import Control.Proxy.Concurrent
     'Unbounded' mailboxes.  However, we can control the size of the mailbox to
     tune the coupling between the 'Input' and the 'Output' ends.
 
-    If we set the mailbox 'Size' to 'Single', then the mailbox holds exactly one
-    message, forcing synchronization between 'send's and 'recv's.  Let's
+    If we set the mailbox 'Buffer' to 'Single', then the mailbox holds exactly
+    one message, forcing synchronization between 'send's and 'recv's.  Let's
     observe this by sending an infinite stream of values, logging all values to
     'stdout':
 
@@ -405,6 +408,12 @@ import Control.Proxy.Concurrent
 > Worker #2: Processed 5
 > Worker #3: Processed 4
 > $
+-}
+
+{- $signals
+    Sometimes we want no coupling between input and output at all.  If we're
+    tracking mouse motions, we don't want to handle every single cursor update.
+    Instead, we prefer to just save the latest mouse position and sample
 -}
 
 {- $callback

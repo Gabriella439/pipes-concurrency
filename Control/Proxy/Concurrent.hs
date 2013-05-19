@@ -28,7 +28,7 @@
 module Control.Proxy.Concurrent (
     -- * Spawn mailboxes
     spawn,
-    Size(..),
+    Buffer(..),
     Input,
     Output,
 
@@ -57,11 +57,12 @@ import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
 
-{-| Spawn a mailbox of the specified 'Size' that has an 'Input' and 'Output' end
+{-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
+    'Buffer' to store messages
 -}
-spawn :: Size -> IO (Input a, Output a)
-spawn size = do
-    (read, write) <- case size of
+spawn :: Buffer a -> IO (Input a, Output a)
+spawn buffer = do
+    (read, write) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
             let read = do
@@ -89,6 +90,12 @@ spawn size = do
                         _       -> return ()
                     return ma
             return (read, S.putTMVar m)
+        Latest a  -> do
+            t <- S.newTVarIO a
+            let write ma = case ma of
+                    Nothing -> return ()
+                    Just a  -> S.writeTVar t a
+            return (fmap Just (S.readTVar t), write)
 
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
@@ -126,16 +133,21 @@ spawn size = do
         _recv = read <* unsafeIOToSTM (readIORef rDn)
     return (Input _send , Output _recv)
 
-{-| 'Size' specifies how many messages to store in the mailbox before 'send'
-    blocks.
+{-| 'Buffer' specifies how to store messages sent to the 'Input' end until the
+    'Output' receives them.
 -}
-data Size
-    -- | Store an 'Unbounded' number of messages
+data Buffer a
+    -- | Store an 'Unbounded' number of messages in a FIFO queue
     = Unbounded
-    -- | Store a 'Bounded' number of messages specified by the 'Int' argument
+    -- | Store a 'Bounded' number of messages, specified by the 'Int' argument
     | Bounded Int
-    -- | Store only a 'Single' message (like @Bounded 1@, but more efficient)
+    -- | Store a 'Single' message (like @Bounded 1@, but more efficient)
     | Single
+    {-| Store the 'Latest' message, beginning with a initial value
+
+        'Latest' is never empty nor full.
+    -}
+    | Latest a
 
 -- | Accepts messages for the mailbox
 newtype Input a = Input {
@@ -182,7 +194,8 @@ sendD input = P.runIdentityK loop
 
 {-| Convert an 'Output' to a 'P.Producer'
 
-    'recvS' terminates when the corresponding 'Input' is garbage collected.
+    'recvS' terminates when the 'Buffer' is empty and the 'Input' is garbage
+    collected.
 -}
 recvS :: (P.Proxy p) => Output a -> () -> P.Producer p a IO ()
 recvS output () = P.runIdentityP go

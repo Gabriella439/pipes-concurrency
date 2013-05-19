@@ -16,7 +16,7 @@ Description: This library provides light-weight concurrency primitives for
   .
   * /Deadlock Safety/: Automatically avoid concurrency deadlocks
   .
-  * /Flexibility/: Build many-to-many communication topologies
+  * /Flexibility/: Build many-to-many and cyclic communication topologies
   .
   * /Dynamic Graphs/: Add or remove readers and writers at any time
   .
