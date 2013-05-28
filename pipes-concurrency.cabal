@@ -31,6 +31,7 @@ Source-Repository head
 Library
     Build-Depends:
         base         >= 4       && < 5  ,
+        async        >= 2,
         pipes        >= 3.0     && < 3.4,
         stm          >= 2.4     && < 2.5,
         transformers >= 0.2.0.0 && < 0.4
