@@ -40,6 +40,10 @@ module Control.Proxy.Concurrent (
     sendD,
     recvS,
 
+    -- * Prefetching
+    -- $prefetch
+    prefetch,
+
     -- * Re-exports
     -- $reexport
     module Control.Concurrent,
@@ -49,10 +53,12 @@ module Control.Proxy.Concurrent (
 
 import Control.Applicative ((<|>), (<*), pure)
 import Control.Concurrent (forkIO)
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM (atomically, STM)
 import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
+import Control.Proxy ((>->))
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
@@ -207,6 +213,31 @@ recvS output () = P.runIdentityP go
             Just a  -> do
                 P.respond a
                 go
+
+{- $prefetch
+   Using 'prefetch' you can execute an entire 'P.Proxy' concurrently, which
+   allows you to prefetch responses for downstream. For example, if you have
+   a producer that does some IO, such as reading a file, and a downstream that
+   also does IO such as database serialization, you could prefetch file reading
+   so that the file can be read while database serialization occurs.
+-}
+prefetch
+  :: (P.Proxy p, P.Proxy p') =>
+     Int
+     -- ^ The amount of 'P.response's to prefetch
+     -> ((b' -> p' a' a b' b IO ()) -> IO a)
+     -- ^ A way to execute the proxy - usually 'P.runProxy'
+     -> (b' -> p' a' a b' b IO ())
+     -- ^ A 'P.Proxy' to prefetch from
+     -> () -> P.Producer p b IO ()
+prefetch n run p () = P.runIdentityP $ do
+    (i, o) <- lift (spawn (Bounded n))
+    worker <- lift $ Async.async $ do
+        run $ p >-> sendD i
+        performGC
+    lift $ Async.link worker
+    recvS o ()
+    lift (performGC >> Async.wait worker)
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
