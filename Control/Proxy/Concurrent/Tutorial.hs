@@ -26,6 +26,9 @@ module Control.Proxy.Concurrent.Tutorial (
     -- * Callbacks
     -- $callback
 
+    -- * Updates
+    -- $updates
+
     -- * Safety
     -- $safety
 
@@ -455,6 +458,63 @@ import Control.Proxy.Concurrent
 
 -}
 
+{- $updates
+    Sometimes you don't want to handle every single event.  For example, you
+    might have an input and output device (like a mouse and a monitor) where the
+    input device updates at a different pace than the output device
+
+> import Control.Concurrent
+> import Control.Proxy
+> 
+> -- Fast input updates
+> inputDevice :: (Monad m, Proxy p) => () -> Producer p Integer m r
+> inputDevice = enumFromS 1
+> 
+> -- Slow output updates
+> outputDevice :: (Proxy p) => () -> Consumer p Integer IO r
+> outputDevice () = runIdentityP $ forever $ do
+>     n <- request ()
+>     lift $ do
+>         print n
+>         threadDelay 1000000
+
+    In this scenario you don't want to enforce a one-to-one correspondence
+    between input device updates and output device updates.  Instead, you just
+    want the output device to consult the 'Latest' value received from the
+    'Input':
+
+> import Control.Concurrent.Async
+> import Control.Proxy.Concurrent
+>
+> main = do
+>     (input, output) <- spawn (Latest 0)
+>     a1 <- async $ do
+>         runProxy $ inputDevice >-> sendD input
+>         performGC
+>     a2 <- async $ do
+>         runProxy $ recvS output >-> takeB_ 5 >-> outputDevice
+>         performGC
+>     mapM_ wait [a1, a2]
+
+    'Latest' selects a mailbox that always stores exactly one value.  The
+    'Latest' constructor takes a single argument (@0@, in the above example)
+    specifying the starting value to store in the mailbox.  'send' overrides the
+    currently stored value and 'recv' peeks at the latest stored value without
+    consuming it.  In the above example the @outputDevice@ periodically peeks at    the latest value stashed inside the mailbox:
+
+> $ ./peek
+> 5
+> 752452
+> 1502636
+> 2248278
+> 2997705
+> $
+
+    A 'Latest' mailbox is never empty because it begins with a default value and
+    'recv' never empties the buffer.  A 'Latest' mailbox is also never full
+    because 'send' always succeeds, overwriting the previous value.
+-}
+
 {- $safety
     @pipes-concurrency@ avoids deadlocks, because 'send' and 'recv' always
     cleanly return before triggering a deadlock.  This behavior works even in
@@ -465,6 +525,39 @@ import Control.Proxy.Concurrent
     * multiple readers and multiple writers to the same mailbox, and
 
     * dynamically adding or garbage collecting mailboxes.
+
+    The following example shows how @pipes-concurrency@ will do the right thing
+    even in the case of cycles:
+
+> import Control.Concurrent.Async
+> import Control.Proxy
+> import Control.Proxy.Concurrent
+> 
+> main = do
+>     (in1, out1) <- spawn Unbounded
+>     (in2, out2) <- spawn Unbounded
+>     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1)
+>                              >-> printD
+>                              >-> sendD in2
+>                      performGC
+>     a2 <- async $ do runProxy $ recvS out2 >-> takeB_ 6 >-> sendD in1
+>                      performGC
+>     mapM_ wait [a1, a2]
+
+    The above program jump-starts a cyclic chain with two input values and
+    terminates one branch of the cycle after six values flow through.  Both
+    branches correctly terminate and get garbage collected without triggering
+    deadlocks when 'takeB_' finishes:
+
+> $ ./cycle
+> 1
+> 2
+> 1
+> 2
+> 1
+> 2
+> $
+
 -}
 
 {- $conclusion
@@ -579,4 +672,30 @@ import Control.Proxy.Concurrent
 > 
 > main = runProxy $ onLines' >-> takeWhileD (/= "quit) >-> stdoutD
 
+> -- peek.hs
+> 
+> import Control.Concurrent
+> import Control.Concurrent.Async
+> import Control.Proxy
+> import Control.Proxy.Concurrent
+> 
+> inputDevice :: (Monad m, Proxy p) => () -> Producer p Integer m r
+> inputDevice = enumFromS 1
+> 
+> outputDevice :: (Proxy p) => () -> Consumer p Integer IO r
+> outputDevice () = runIdentityP $ forever $ do
+>     n <- request ()
+>     lift $ do
+>         print n
+>         threadDelay 1000000
+>
+> main = do
+>     (input, output) <- spawn (Latest 0)
+>     a1 <- async $ do
+>         runProxy $ inputDevice >-> sendD input
+>         performGC
+>     a2 <- async $ do
+>         runProxy $ recvS output >-> takeB_ 5 >-> outputDevice
+>         performGC
+>     mapM_ wait [a1, a2]
 -}
