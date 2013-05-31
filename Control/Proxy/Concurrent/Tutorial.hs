@@ -20,9 +20,6 @@ module Control.Proxy.Concurrent.Tutorial (
     -- * Mailbox Sizes
     -- $mailbox
 
-    -- * Signals
-    -- $signals
-
     -- * Callbacks
     -- $callback
 
@@ -413,12 +410,6 @@ import Control.Proxy.Concurrent
 > $
 -}
 
-{- $signals
-    Sometimes we want no coupling between input and output at all.  If we're
-    tracking mouse motions, we don't want to handle every single cursor update.
-    Instead, we prefer to just save the latest mouse position and sample
--}
-
 {- $callback
     @pipes-concurrency@ also solves the common problem of getting data out of a
     callback-based framework into @pipes@.
@@ -511,8 +502,9 @@ import Control.Proxy.Concurrent
 > $
 
     A 'Latest' mailbox is never empty because it begins with a default value and
-    'recv' never empties the buffer.  A 'Latest' mailbox is also never full
-    because 'send' always succeeds, overwriting the previous value.
+    'recv' never empties the mailbox.  A 'Latest' mailbox is also never full
+    because 'send' always succeeds, overwriting the previous value stored in the
+    mailbox.
 -}
 
 {- $safety
