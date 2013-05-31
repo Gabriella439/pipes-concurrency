@@ -145,7 +145,7 @@ data Buffer a
     | Bounded Int
     -- | Store a 'Single' message (like @Bounded 1@, but more efficient)
     | Single
-    {-| Store the 'Latest' message, beginning with a initial value
+    {-| Store the 'Latest' message, beginning with an initial value
 
         'Latest' is never empty nor full.
     -}
@@ -219,8 +219,8 @@ sendD input = P.runIdentityK loop
 
 {-| Convert an 'Output' to a 'P.Producer'
 
-    'recvS' terminates when the 'Buffer' is empty and the 'Input' is garbage
-    collected.
+    'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
+    is garbage collected.
 -}
 recvS :: (P.Proxy p) => Output a -> () -> P.Producer p a IO ()
 recvS output () = P.runIdentityP go
