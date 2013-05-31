@@ -20,11 +20,14 @@ module Control.Proxy.Concurrent.Tutorial (
     -- * Mailbox Sizes
     -- $mailbox
 
-    -- * Callbacks
-    -- $callback
+    -- * Broadcasts
+    -- $broadcast
 
     -- * Updates
     -- $updates
+
+    -- * Callbacks
+    -- $callback
 
     -- * Safety
     -- $safety
@@ -38,6 +41,7 @@ module Control.Proxy.Concurrent.Tutorial (
 
 import Control.Proxy
 import Control.Proxy.Concurrent
+import Data.Monoid
 
 {- $intro
     The @pipes-concurrency@ library provides a simple interface for
@@ -48,7 +52,9 @@ import Control.Proxy.Concurrent
 
     * stream data from a callback \/ continuation,
 
-    * implement a work-stealing setup, or
+    * broadcast data,
+
+    * build a work-stealing setup, or
 
     * implement basic functional reactive programming (FRP).
 
@@ -410,43 +416,50 @@ import Control.Proxy.Concurrent
 > $
 -}
 
-{- $callback
-    @pipes-concurrency@ also solves the common problem of getting data out of a
-    callback-based framework into @pipes@.
-
-    For example, suppose that we have the following callback-based function:
+{- $broadcast
+    You can also broadcast data to multiple consumers instead of dividing the
+    data.  To do this, just use the 'Monoid' instance for 'Input' to combine
+    each consumer's 'Input' ends together into a single combined 'Input' end:
 
 > import Control.Monad
-> 
-> onLines :: (String -> IO a) -> IO b
-> onLines callback = forever $ do
->     str <- getLine
->     callback str
-
-    We can use 'send' to free the data from the callback and then we can
-    retrieve the data on the outside using 'recvS':
-
+> import Control.Concurrent.Async
 > import Control.Proxy
 > import Control.Proxy.Concurrent
+> import Data.Monoid
 > 
-> onLines' :: (Proxy p) => () -> Producer p String IO ()
-> onLines' () = runIdentityP $ do
->     (input, output) <- lift $ spawn Single
->     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     recvS output ()
-> 
-> main = runProxy $ onLines' >-> takeWhileD (/= "quit") >-> stdoutD
+> main = do
+>     (input1, output1) <- spawn Unbounded
+>     (input2, output2) <- spawn Unbounded
+>     let inputs = input1 <> input2
 
-    Now we can stream from the callback as if it were an ordinary 'Producer':
+    Messages sent to @inputs@ will be broadcast to both @input1@ and @input2@:
 
-> $ ./callback
-> Test<Enter>
-> Test
-> Apple<Enter>
-> Apple
-> quit<Enter>
-> $
+>     a1 <- async $ do
+>         runProxy $ stdinS >-> sendD inputs
+>         performGC
+>     as <- forM [output1, output2] $ \output -> async $ do
+>         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
+>         performGC
+>     mapM_ wait (a1:as)
 
+
+    @inputs@ will correctly shut down when both @input1@ and @input2@ shut down
+    (after receiving two broadcasts in this case):
+
+> $ ./broadcast
+> ABC<Enter>
+> ABC
+> ABC
+> DEF<Enter>
+> DEF
+> DEF
+> GHI<Enter>
+> $ 
+
+    To combine more than two inputs, use 'mconcat'.  However, combining a large
+    number of 'Input's will create a large 'STM' transaction and impact
+    performance.  You can improve performance for large broadcasts if you
+    sacrifice atomicity and manually combine multiple 'send' actions in 'IO'.
 -}
 
 {- $updates
@@ -505,6 +518,45 @@ import Control.Proxy.Concurrent
     'recv' never empties the mailbox.  A 'Latest' mailbox is also never full
     because 'send' always succeeds, overwriting the previous value stored in the
     mailbox.
+-}
+
+{- $callback
+    @pipes-concurrency@ also solves the common problem of getting data out of a
+    callback-based framework into @pipes@.
+
+    For example, suppose that we have the following callback-based function:
+
+> import Control.Monad
+> 
+> onLines :: (String -> IO a) -> IO b
+> onLines callback = forever $ do
+>     str <- getLine
+>     callback str
+
+    We can use 'send' to free the data from the callback and then we can
+    retrieve the data on the outside using 'recvS':
+
+> import Control.Proxy
+> import Control.Proxy.Concurrent
+> 
+> onLines' :: (Proxy p) => () -> Producer p String IO ()
+> onLines' () = runIdentityP $ do
+>     (input, output) <- lift $ spawn Single
+>     lift $ forkIO $ onLines (\str -> atomically $ send input str)
+>     recvS output ()
+> 
+> main = runProxy $ onLines' >-> takeWhileD (/= "quit") >-> stdoutD
+
+    Now we can stream from the callback as if it were an ordinary 'Producer':
+
+> $ ./callback
+> Test<Enter>
+> Test
+> Apple<Enter>
+> Apple
+> quit<Enter>
+> $
+
 -}
 
 {- $safety
@@ -651,18 +703,25 @@ import Control.Proxy.Concurrent
 >                      performGC
 >     mapM_ wait (a:as)
 
-> -- callback.hs
-> 
+> -- broadcast.hs
+>
+> import Control.Monad
+> import Control.Concurrent.Async
 > import Control.Proxy
 > import Control.Proxy.Concurrent
+> import Data.Monoid
 > 
-> onLines' :: (Proxy p) => () -> Producer p String IO ()
-> onLines' () = runIdentityP $ do
->     (input, output) <- lift $ spawn Single
->     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     recvS output ()
-> 
-> main = runProxy $ onLines' >-> takeWhileD (/= "quit) >-> stdoutD
+> main = do
+>     (input1, output1) <- spawn Unbounded
+>     (input2, output2) <- spawn Unbounded
+>     let inputs = input1 <> input2
+>     a1 <- async $ do
+>         runProxy $ stdinS >-> sendD inputs
+>         performGC
+>     as <- forM [output1, output2] $ \output -> async $ do
+>         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
+>         performGC
+>     mapM_ wait (a1:as)
 
 > -- peek.hs
 > 
@@ -690,4 +749,17 @@ import Control.Proxy.Concurrent
 >         runProxy $ recvS output >-> takeB_ 5 >-> outputDevice
 >         performGC
 >     mapM_ wait [a1, a2]
+
+> -- callback.hs
+> 
+> import Control.Proxy
+> import Control.Proxy.Concurrent
+> 
+> onLines' :: (Proxy p) => () -> Producer p String IO ()
+> onLines' () = runIdentityP $ do
+>     (input, output) <- lift $ spawn Single
+>     lift $ forkIO $ onLines (\str -> atomically $ send input str)
+>     recvS output ()
+> 
+> main = runProxy $ onLines' >-> takeWhileD (/= "quit) >-> stdoutD
 -}
