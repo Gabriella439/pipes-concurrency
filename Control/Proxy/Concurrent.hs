@@ -47,13 +47,15 @@ module Control.Proxy.Concurrent (
     module System.Mem
     ) where
 
-import Control.Applicative ((<|>), (<*), pure)
+import Control.Applicative (
+    Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
+import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
 
@@ -162,6 +164,10 @@ newtype Input a = Input {
     -}
     send :: a -> S.STM Bool }
 
+instance Monoid (Input a) where
+    mempty        = Input (\_ -> pure False)
+    mappend i1 i2 = Input (\a -> (||) <$> (send i1 a) <*> (send i2 a))
+
 -- | Retrieves messages from the mailbox
 newtype Output a = Output {
     {-| Receive a message from the mailbox
@@ -175,6 +181,25 @@ newtype Output a = Output {
           'Nothing'.
     -}
     recv :: S.STM (Maybe a) }
+
+instance Functor Output where
+    fmap f m = Output (fmap (fmap f) (recv m))
+
+instance Applicative Output where
+    pure r    = Output (pure (pure r))
+    mf <*> mx = Output ((<*>) <$> recv mf <*> recv mx)
+
+instance Monad Output where
+    return r = Output (return (return r))
+    m >>= f  = Output $ do
+        ma <- recv m
+        case ma of
+	    Nothing -> return Nothing
+	    Just a  -> recv (f a)
+
+instance Alternative Output where
+    empty = Output empty
+    x <|> y = Output (recv x <|> recv y)
 
 {-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
 
