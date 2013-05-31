@@ -216,6 +216,7 @@ sendD input = P.runIdentityK loop
                 x2 <- P.respond a
                 loop x2
             else return ()
+{-# INLINABLE sendD #-}
 
 {-| Convert an 'Output' to a 'P.Producer'
 
@@ -232,6 +233,7 @@ recvS output () = P.runIdentityP go
             Just a  -> do
                 P.respond a
                 go
+{-# INLINABLE recvS #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
