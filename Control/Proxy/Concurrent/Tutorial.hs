@@ -86,7 +86,7 @@ import Data.Monoid
     However, we have two concurrent event sources that we wish to hook up to our
     event handler.  One translates user input to game events:
 
-> user :: (Proxy p) => () -> Producer p Event IO ()
+> user :: (Proxy p) => () -> Producer p Event IO r
 > user () = runIdentityP $ forever $ do
 >     command <- lift getLine
 >     case command of
@@ -456,8 +456,8 @@ import Data.Monoid
 > GHI<Enter>
 > $ 
 
-    To combine more than two inputs, use 'mconcat'.  However, combining a large
-    number of 'Input's will create a large 'STM' transaction and impact
+    To combine more than two inputs, use 'mconcat'.  However, combining a very
+    large number of 'Input's will create a large 'STM' transaction and impact
     performance.  You can improve performance for large broadcasts if you
     sacrifice atomicity and manually combine multiple 'send' actions in 'IO'.
 -}
@@ -560,7 +560,7 @@ import Data.Monoid
 -}
 
 {- $safety
-    @pipes-concurrency@ avoids deadlocks, because 'send' and 'recv' always
+    @pipes-concurrency@ avoids deadlocks because 'send' and 'recv' always
     cleanly return before triggering a deadlock.  This behavior works even in
     complicated scenarios like:
 
@@ -645,7 +645,7 @@ import Data.Monoid
 >     health <- get
 >     lift $ putStrLn $ "Health = " ++ show health
 >
-> user :: (Proxy p) => () -> Producer p Event IO ()
+> user :: (Proxy p) => () -> Producer p Event IO r
 > user () = runIdentityP $ forever $ do
 >     command <- lift getLine
 >     case command of
