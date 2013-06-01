@@ -204,6 +204,8 @@ instance Alternative Output where
 {-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
 
     'sendD' terminates when the corresponding 'Output' is garbage collected.
+
+> sendD :: (P.Proxy p) => Input a -> () -> Pipe p a a IO ()
 -}
 sendD :: (P.Proxy p) => Input a -> x -> p x a x a IO ()
 sendD input = P.runIdentityK loop
@@ -221,14 +223,16 @@ sendD input = P.runIdentityK loop
 
     'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
     is garbage collected.
+
+> recvS :: (Proxy p) => Output a -> () -> Producer p a IO ()
 -}
-recvS :: (P.Proxy p) => Output a -> () -> P.Producer p a IO ()
-recvS output () = P.runIdentityP go
+recvS :: (P.Proxy p) => Output a -> r -> p x' x y' a IO r
+recvS output r = P.runIdentityP go
   where
     go = do
         ma <- lift $ S.atomically $ recv output
         case ma of
-            Nothing -> return ()
+            Nothing -> return r
             Just a  -> do
                 P.respond a
                 go
