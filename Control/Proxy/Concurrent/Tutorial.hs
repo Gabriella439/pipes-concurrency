@@ -108,14 +108,8 @@ import Data.Monoid
 
 > spawn :: Buffer a -> IO (Input a, Output a)
 
-    'spawn' takes a mailbox 'Buffer' as an argument, and we specify that we want
-    our mailbox to store an 'Unbounded' number of messages.  'spawn' creates
-    this mailbox in the background and then returns two values:
-
-    * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
-
-    * an @(Output a)@ that we use to consume messages of type @a@ from the
-      mailbox
+    'spawn' takes a mailbox 'Buffer' as an argument, and we will specify that we
+    want our mailbox to store an 'Unbounded' number of messages:
 
 > import Control.Proxy.Concurrent
 >
@@ -123,13 +117,20 @@ import Data.Monoid
 >     (input, output) <- spawn Unbounded
 >     ...
 
+   'spawn' creates this mailbox in the background and then returns two values:
+
+    * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
+
+    * an @(Output a)@ that we use to consume messages of type @a@ from the
+      mailbox
+
     We will be streaming @Event@s through our mailbox, so our @input@ has type
     @(Input Event)@ and our @output@ has type @(Output Event)@.
 
     To stream @Event@s into the mailbox , we use 'sendD', which writes values to
     the mailbox's 'Input' end:
 
-> sendD :: (Proxy p) => Input a -> x -> p x a x a IO ()
+> sendD :: (Proxy p) => Input a -> () -> Pipe p a a IO ()
 
     We can concurrently forward multiple streams to the same 'Input', which
     asynchronously merges their messages into the same mailbox:
@@ -280,12 +281,14 @@ import Data.Monoid
     Does it work the other way around?  What happens if the workers go on strike
     before processing the entire data set?
 
-> -- Each worker refuses to process more than two values
-> worker :: (Proxy p, Show a) => Int -> () -> Consumer p a IO ()
-> worker i () = runIdentityP $ replicateM_ 2 $ do
->     a <- request ()
->     lift $ threadDelay 1000000
->     lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
+>     ...
+>     as <- forM [1..3] $ \i ->
+>           -- Each worker refuses to process more than two values
+>           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
+>                      performGC
+>     ...
+
+    Let's find out:
 
 > $ ./work
 > How<Enter>
@@ -335,7 +338,7 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn Single
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> worker i
+>           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
 >                      performGC
 >     a  <- async $ do runProxy $ enumFromS 1 >-> printD >-> sendD input
 >                      performGC
@@ -459,7 +462,8 @@ import Data.Monoid
     To combine more than two inputs, use 'mconcat'.  However, combining a very
     large number of 'Input's will create a large 'STM' transaction and impact
     performance.  You can improve performance for large broadcasts if you
-    sacrifice atomicity and manually combine multiple 'send' actions in 'IO'.
+    sacrifice atomicity and manually combine multiple 'send' actions in 'IO'
+    instead of 'STM'.
 -}
 
 {- $updates
@@ -696,6 +700,7 @@ import Data.Monoid
 > --  (input, output) <- spawn (Bounded 100)
 >     as <- forM [1..3] $ \i ->
 >           async $ do runProxy $ recvS output >-> worker i
+> --        async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
 >                      performGC
 >     a  <- async $ do runProxy $ fromListS [1..10]      >-> sendD input
 > --  a  <- async $ do runProxy $ user                   >-> sendD input
