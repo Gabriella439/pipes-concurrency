@@ -420,9 +420,9 @@ import Data.Monoid
 -}
 
 {- $broadcast
-    You can also broadcast data to multiple consumers instead of dividing the
-    data.  To do this, just use the 'Monoid' instance for 'Input' to combine
-    each consumer's 'Input' ends together into a single combined 'Input' end:
+    You can also broadcast data to multiple listeners instead of dividing up the
+    data.  To do this, just use 'toAll' or 'toAny' to combine all listener
+    'Input' ends together into a single combined 'Input' end:
 
 > import Control.Monad
 > import Control.Concurrent.Async
@@ -433,21 +433,16 @@ import Data.Monoid
 > main = do
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
->     let inputs = input1 <> input2
-
-    Messages sent to @inputs@ will be broadcast to both @input1@ and @input2@:
-
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD inputs
+>         runProxy $ stdinS >-> sendD (toAny [input1, input2])
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
 >         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
 >         performGC
 >     mapM_ wait (a1:as)
 
-
-    @inputs@ will correctly shut down when both @input1@ and @input2@ shut down
-    (after receiving two broadcasts in this case):
+    In the above example, standard input will be broadcast to both downstream
+    listeners.  Each of them will write the same line to standard output:
 
 > $ ./broadcast
 > ABC<Enter>
@@ -459,11 +454,18 @@ import Data.Monoid
 > GHI<Enter>
 > $ 
 
-    To combine more than two inputs, use 'mconcat'.  However, combining a very
-    large number of 'Input's will create a large 'STM' transaction and impact
-    performance.  You can improve performance for large broadcasts if you
-    sacrifice atomicity and manually combine multiple 'send' actions in 'IO'
-    instead of 'STM'.
+    Both 'toAny' and 'toAll' broadcast data to all listeners and they only
+    differ in how long the combined 'Input' stays alive.  'toAny' keeps the
+    combined 'Input' alive if 'any' of the individual 'Input' ends stays alive.
+    'toAll' has the opposite behavior, staying alive only if 'all' the
+    individual 'Input' ends stay alive.  In the above example there would be no
+    difference since both 'Input' ends die simultaneously after two 'send's.
+
+    While 'toAny' and 'toAll' are convenient, they incur a performance price if
+    you combine thousands of 'Input's or more because they will create a very
+    large 'STM' transaction.  You can improve performance for very large
+    broadcasts if you sacrifice atomicity and manually combine multiple 'send'
+    actions in 'IO' instead of 'STM'.
 -}
 
 {- $updates
