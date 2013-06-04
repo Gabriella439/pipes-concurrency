@@ -30,6 +30,8 @@ module Control.Proxy.Concurrent (
     spawn,
     Buffer(..),
     Input,
+    toAny,
+    toAll,
     Output,
 
     -- * Send and receive messages
@@ -51,13 +53,14 @@ import Control.Applicative (
     Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
+import Data.Foldable (Foldable, foldr)
 import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
-import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
+import Prelude hiding (foldr)
 
 {-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
     'Buffer' to store messages
@@ -164,9 +167,21 @@ newtype Input a = Input {
     -}
     send :: a -> S.STM Bool }
 
-instance Monoid (Input a) where
-    mempty        = Input (\_ -> pure False)
-    mappend i1 i2 = Input (\a -> (||) <$> (send i1 a) <*> (send i2 a))
+{-| Combine several 'Input's together
+
+    The combined 'send' succeeds if 'any' individual 'send' succeeds
+-}
+toAny :: (Foldable t) => t (Input a) -> Input a
+toAny inputs = Input $ \a ->
+    foldr (\input rest -> (||) <$> send input a <*> rest) (return False) inputs
+
+{-| Combine several 'Input's together
+
+    The combined 'send' succeeds if 'all' individual 'send's succeed
+-}
+toAll :: (Foldable t) => t (Input a) -> Input a
+toAll inputs = Input $ \a ->
+    foldr (\input rest -> (&&) <$> send input a <*> rest) (return True) inputs
 
 -- | Retrieves messages from the mailbox
 newtype Output a = Output {
