@@ -54,7 +54,6 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import Data.Foldable (Foldable, foldr)
-import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
@@ -227,7 +226,7 @@ sendD input = P.runIdentityK loop
   where
     loop x = do
         a <- P.request x
-        alive <- lift $ S.atomically $ send input a
+        alive <- P.lift $ S.atomically $ send input a
         if alive
             then do
                 x2 <- P.respond a
@@ -245,7 +244,7 @@ recvS :: (P.Proxy p) => Output a -> r -> p x' x y' a IO r
 recvS output r = P.runIdentityP go
   where
     go = do
-        ma <- lift $ S.atomically $ recv output
+        ma <- P.lift $ S.atomically $ recv output
         case ma of
             Nothing -> return r
             Just a  -> do
