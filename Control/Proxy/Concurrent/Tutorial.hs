@@ -584,11 +584,9 @@ import Data.Monoid
 > main = do
 >     (in1, out1) <- spawn Unbounded
 >     (in2, out2) <- spawn Unbounded
->     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1)
->                              >-> printD
->                              >-> sendD in2
+>     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1) >-> sendD in2
 >                      performGC
->     a2 <- async $ do runProxy $ recvS out2 >-> takeB_ 6 >-> sendD in1
+>     a2 <- async $ do runProxy $ recvS out2 >-> printD >-> takeB_ 6 >-> sendD in1
 >                      performGC
 >     mapM_ wait [a1, a2]
 
