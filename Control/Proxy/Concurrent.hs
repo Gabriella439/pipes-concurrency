@@ -54,7 +54,7 @@ import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
-import Data.Monoid (Monoid(mempty, mappend, mconcat), (<>))
+import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
 import System.Mem (performGC)
 
@@ -197,7 +197,7 @@ instance Monad Output where
 	    Just a  -> recv (f a)
 
 instance Alternative Output where
-    empty = Output empty
+    empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
 
 {-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
