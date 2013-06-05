@@ -44,7 +44,6 @@ module Control.Proxy.Concurrent (
     -- $reexport
     module Control.Concurrent,
     module Control.Concurrent.STM,
-    module Data.Monoid,
     module System.Mem
     ) where
 
@@ -242,8 +241,6 @@ recvS output r = P.runIdentityP go
     @async@ library instead.
 
     @Control.Concurrent.STM@ re-exports 'atomically' and 'STM'.
-
-    @Data.Monoid@ re-exports the 'Monoid' class and ('<>')
 
     @System.Mem@ re-exports 'performGC'.
 -}

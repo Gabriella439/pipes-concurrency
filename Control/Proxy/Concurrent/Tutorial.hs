@@ -421,8 +421,8 @@ import Data.Monoid
 
 {- $broadcast
     You can also broadcast data to multiple listeners instead of dividing up the
-    data.  To do this, just use 'toAll' or 'toAny' to combine all listener
-    'Input' ends together into a single combined 'Input' end:
+    data.  Just use the 'Monoid' instance for 'Input' to combine multiple
+    'Input' ends together into a single broadcast 'Input':
 
 > import Control.Monad
 > import Control.Concurrent.Async
@@ -434,15 +434,16 @@ import Data.Monoid
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD (toAny [input1, input2])
+>         runProxy $ stdinS >-> sendD (input1 <> input2)
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
 >         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
 >         performGC
 >     mapM_ wait (a1:as)
 
-    In the above example, standard input will be broadcast to both downstream
-    listeners.  Each of them will write the same line to standard output:
+    In the above example, 'stdinS' will broadcast user input to both listeners.
+    Each of them will forward the same message to 'stdoutD', which prints the
+    message to standard output:
 
 > $ ./broadcast
 > ABC<Enter>
@@ -454,18 +455,16 @@ import Data.Monoid
 > GHI<Enter>
 > $ 
 
-    Both 'toAny' and 'toAll' broadcast data to all listeners and they only
-    differ in how long the combined 'Input' stays alive.  'toAny' keeps the
-    combined 'Input' alive if 'any' of the individual 'Input' ends stays alive.
-    'toAll' has the opposite behavior, staying alive only if 'all' the
-    individual 'Input' ends stay alive.  In the above example there would be no
-    difference since both 'Input' ends die simultaneously after two 'send's.
+    The combined 'Input' stays alive as long as any of the original 'Input's
+    remains alive.  In the above example, 'sendD' terminates on the third 'send'
+    attempt because it detects that both listeners died after receiving two
+    messages.
 
-    While 'toAny' and 'toAll' are convenient, they incur a performance price if
-    you combine thousands of 'Input's or more because they will create a very
-    large 'STM' transaction.  You can improve performance for very large
-    broadcasts if you sacrifice atomicity and manually combine multiple 'send'
-    actions in 'IO' instead of 'STM'.
+    Use 'mconcat' to broadcast to a list of 'Input's, but keep in mind that you
+    will incur a performance price if you combine thousands of 'Input's or more
+    because they will create a very large 'STM' transaction.  You can improve
+    performance for very large broadcasts if you sacrifice atomicity and
+    manually combine multiple 'send' actions in 'IO' instead of 'STM'.
 -}
 
 {- $updates
@@ -489,9 +488,9 @@ import Data.Monoid
 >         threadDelay 1000000
 
     In this scenario you don't want to enforce a one-to-one correspondence
-    between input device updates and output device updates.  Instead, you just
-    want the output device to consult the 'Latest' value received from the
-    'Input':
+    between input device updates and output device updates because you don't
+    want either end to block waiting for the other end.  Instead, you just need
+    the output device to consult the 'Latest' value received from the 'Input':
 
 > import Control.Concurrent.Async
 > import Control.Proxy.Concurrent
@@ -521,9 +520,9 @@ import Data.Monoid
 > $
 
     A 'Latest' mailbox is never empty because it begins with a default value and
-    'recv' never empties the mailbox.  A 'Latest' mailbox is also never full
-    because 'send' always succeeds, overwriting the previous value stored in the
-    mailbox.
+    'recv' never removes the value from the mailbox.  A 'Latest' mailbox is also
+    never full because 'send' always succeeds, overwriting the previously stored
+    value.
 -}
 
 {- $callback
@@ -719,9 +718,8 @@ import Data.Monoid
 > main = do
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
->     let inputs = input1 <> input2
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD inputs
+>         runProxy $ stdinS >-> sendD (input1 <> input2)
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
 >         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
