@@ -441,9 +441,9 @@ import Data.Monoid
 >         performGC
 >     mapM_ wait (a1:as)
 
-    In the above example, 'stdinS' will broadcast user input to both listeners.
-    Each of them will forward the same message to 'stdoutD', which prints the
-    message to standard output:
+    In the above example, 'stdinS' will broadcast user input to both mailboxes,
+    and each mailbox forwards its values to 'stdoutD', echoing the message to
+    standard output:
 
 > $ ./broadcast
 > ABC<Enter>
