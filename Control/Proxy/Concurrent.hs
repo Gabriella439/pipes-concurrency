@@ -133,6 +133,7 @@ spawn buffer = do
         _send a = (quit <|> continue a) <* unsafeIOToSTM (readIORef rUp)
         _recv = read <* unsafeIOToSTM (readIORef rDn)
     return (Input _send , Output _recv)
+{-# INLINABLE spawn #-}
 
 {-| 'Buffer' specifies how to store messages sent to the 'Input' end until the
     'Output' receives them.
@@ -217,6 +218,7 @@ sendD input = P.runIdentityK loop
                 x2 <- P.respond a
                 loop x2
             else return ()
+{-# INLINABLE sendD #-}
 
 {-| Convert an 'Output' to a 'P.Producer'
 
@@ -235,6 +237,7 @@ recvS output r = P.runIdentityP go
             Just a  -> do
                 P.respond a
                 go
+{-# INLINABLE recvS #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
