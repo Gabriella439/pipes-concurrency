@@ -617,6 +617,10 @@ import Data.Monoid
 
     This promotes an actor-style approach to concurrent programming where
     pipelines behave like processes and mailboxes behave like ... mailboxes.
+
+    You can ask questions about @pipes-concurrency@ and other @pipes@ libraries
+    on the official @pipes@ mailing list at
+    <mailto:haskell-pipes@googlegroups.com>.
 -}
 
 {- $appendix
