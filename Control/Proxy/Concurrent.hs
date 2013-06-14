@@ -66,73 +66,50 @@ spawn buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
-            let read = do
-                    ma <- S.readTBQueue q
-                    case ma of
-                        Nothing -> S.unGetTBQueue q ma
-                        _       -> return ()
-                    return ma
-            return (read, S.writeTBQueue q)
+            return (S.readTBQueue q, S.writeTBQueue q)
         Unbounded -> do
             q <- S.newTQueueIO
-            let read = do
-                    ma <- S.readTQueue q
-                    case ma of
-                        Nothing -> S.unGetTQueue q ma
-                        _       -> return ()
-                    return ma
-            return (read, S.writeTQueue q)
+            return (S.readTQueue q, S.writeTQueue q)
         Single    -> do
             m <- S.newEmptyTMVarIO
-            let read = do
-                    ma <- S.takeTMVar m
-                    case ma of
-                        Nothing -> S.putTMVar m ma
-                        _       -> return ()
-                    return ma
-            return (read, S.putTMVar m)
+            return (S.takeTMVar m, S.putTMVar m)
         Latest a  -> do
             t <- S.newTVarIO a
-            let write ma = case ma of
-                    Nothing -> return ()
-                    Just a  -> S.writeTVar t a
-            return (fmap Just (S.readTVar t), write)
+            return (S.readTVar t, S.writeTVar t)
 
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
-
-       The finalizer cannot anticipate how many listeners there are, so it only
-       writes a single 'Nothing' and trusts that the supplied 'read' action
-       will not consume the 'Nothing'.
-
-       The 'write' must be protected with the "pure ()" fallback so that it does
-       not deadlock if the 'Output' end has also been garbage collected.
     -}
     rUp  <- newIORef ()
-    mkWeakIORef rUp (S.atomically $ write Nothing <|> pure ())
+    doneUp <- S.newTVarIO False
+    mkWeakIORef rUp (S.atomically $ S.writeTVar doneUp True)
 
     {- Use an IORef to keep track of whether the 'Output' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
     rDn  <- newIORef ()
-    done <- S.newTVarIO False
-    mkWeakIORef rDn (S.atomically $ S.writeTVar done True)
+    doneDn <- S.newTVarIO False
+    mkWeakIORef rDn (S.atomically $ S.writeTVar doneDn True)
 
-    let quit = do
-            b <- S.readTVar done
-            S.check b
-            return False
-        continue a = do
-            write (Just a)
+    let sendOrEnd a = do
+          b <- S.readTVar doneDn
+          if b
+          then return False
+          else do
+            write a
             return True
+        readTestEnd = do
+          b <- S.readTVar doneUp
+          S.check b
+          return Nothing
         {- The '_send' action aborts if the 'Output' has been garbage collected,
            since there is no point wasting memory if nothing can empty the
            mailbox.  This protects against careless users not checking send's
            return value, especially if they use a mailbox of 'Unbounded' size.
         -}
-        _send a = (quit <|> continue a) <* unsafeIOToSTM (readIORef rUp)
-        _recv = read <* unsafeIOToSTM (readIORef rDn)
-    return (Input _send , Output _recv)
+        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rUp)
+        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rDn)
+    return (Input _send, Output _recv)
 {-# INLINABLE spawn #-}
 
 {-| 'Buffer' specifies how to store messages sent to the 'Input' end until the
@@ -194,8 +171,8 @@ instance Monad Output where
     m >>= f  = Output $ do
         ma <- recv m
         case ma of
-	    Nothing -> return Nothing
-	    Just a  -> recv (f a)
+            Nothing -> return Nothing
+            Just a  -> recv (f a)
 
 instance Alternative Output where
     empty   = Output empty
