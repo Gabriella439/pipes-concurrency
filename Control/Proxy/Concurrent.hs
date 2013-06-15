@@ -80,26 +80,26 @@ spawn buffer = do
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rUp  <- newIORef ()
-    doneUp <- S.newTVarIO False
-    mkWeakIORef rUp (S.atomically $ S.writeTVar doneUp True)
+    rSend  <- newIORef ()
+    doneSend <- S.newTVarIO False
+    mkWeakIORef rSend (S.atomically $ S.writeTVar doneSend True)
 
     {- Use an IORef to keep track of whether the 'Output' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rDn  <- newIORef ()
-    doneDn <- S.newTVarIO False
-    mkWeakIORef rDn (S.atomically $ S.writeTVar doneDn True)
+    rRecv  <- newIORef ()
+    doneRecv <- S.newTVarIO False
+    mkWeakIORef rRecv (S.atomically $ S.writeTVar doneRecv True)
 
     let sendOrEnd a = do
-          b <- S.readTVar doneDn
+          b <- S.readTVar doneRecv
           if b
-          then return False
-          else do
-            write a
-            return True
+            then return False
+            else do
+              write a
+              return True
         readTestEnd = do
-          b <- S.readTVar doneUp
+          b <- S.readTVar doneSend
           S.check b
           return Nothing
         {- The '_send' action aborts if the 'Output' has been garbage collected,
@@ -107,8 +107,8 @@ spawn buffer = do
            mailbox.  This protects against careless users not checking send's
            return value, especially if they use a mailbox of 'Unbounded' size.
         -}
-        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rUp)
-        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rDn)
+        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
+        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rRecv)
     return (Input _send, Output _recv)
 {-# INLINABLE spawn #-}
 
