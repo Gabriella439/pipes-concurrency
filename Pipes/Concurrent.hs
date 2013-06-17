@@ -36,9 +36,9 @@ module Pipes.Concurrent (
     send,
     recv,
 
-    -- * Proxy utilities
-    sendD,
-    recvS,
+    -- * Pipe utilities
+    toInput,
+    fromOutput,
 
     -- * Re-exports
     -- $reexport
@@ -181,24 +181,24 @@ instance Alternative Output where
 
 {-| Convert an 'Input' to a 'P.Consumer'
 
-    'sendD' terminates when the corresponding 'Output' is garbage collected.
+    'toInput' terminates when the corresponding 'Output' is garbage collected.
 -}
-sendD :: Input a -> () -> P.Consumer a IO ()
-sendD input () = go
+toInput :: Input a -> () -> P.Consumer a IO ()
+toInput input () = go
   where
     go = do
         a     <- P.request ()
         alive <- P.lift $ S.atomically $ send input a
         when alive go
-{-# INLINABLE sendD #-}
+{-# INLINABLE toInput #-}
 
 {-| Convert an 'Output' to a 'P.Producer'
 
-    'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
-    is garbage collected.
+    'fromOutput' terminates when the 'Buffer' is empty and the corresponding
+    'Input' is garbage collected.
 -}
-recvS :: Output a -> () -> P.Producer a IO ()
-recvS output () = go
+fromOutput :: Output a -> () -> P.Producer a IO ()
+fromOutput output () = go
   where
     go = do
         ma <- P.lift $ S.atomically $ recv output
@@ -207,7 +207,7 @@ recvS output () = go
             Just a  -> do
                 P.respond a
                 go
-{-# INLINABLE recvS #-}
+{-# INLINABLE fromOutput #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
