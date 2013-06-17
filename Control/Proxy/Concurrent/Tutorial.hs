@@ -86,7 +86,7 @@ import Data.Monoid
     However, we have two concurrent event sources that we wish to hook up to our
     event handler.  One translates user input to game events:
 
-> user :: (Proxy p) => () -> Producer p Event IO ()
+> user :: (Proxy p) => () -> Producer p Event IO r
 > user () = runIdentityP $ forever $ do
 >     command <- lift getLine
 >     case command of
@@ -108,14 +108,8 @@ import Data.Monoid
 
 > spawn :: Buffer a -> IO (Input a, Output a)
 
-    'spawn' takes a mailbox 'Buffer' as an argument, and we specify that we want
-    our mailbox to store an 'Unbounded' number of messages.  'spawn' creates
-    this mailbox in the background and then returns two values:
-
-    * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
-
-    * an @(Output a)@ that we use to consume messages of type @a@ from the
-      mailbox
+    'spawn' takes a mailbox 'Buffer' as an argument, and we will specify that we
+    want our mailbox to store an 'Unbounded' number of messages:
 
 > import Control.Proxy.Concurrent
 >
@@ -123,13 +117,20 @@ import Data.Monoid
 >     (input, output) <- spawn Unbounded
 >     ...
 
+   'spawn' creates this mailbox in the background and then returns two values:
+
+    * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
+
+    * an @(Output a)@ that we use to consume messages of type @a@ from the
+      mailbox
+
     We will be streaming @Event@s through our mailbox, so our @input@ has type
     @(Input Event)@ and our @output@ has type @(Output Event)@.
 
     To stream @Event@s into the mailbox , we use 'sendD', which writes values to
     the mailbox's 'Input' end:
 
-> sendD :: (Proxy p) => Input a -> x -> p x a x a IO ()
+> sendD :: (Proxy p) => Input a -> () -> Pipe p a a IO ()
 
     We can concurrently forward multiple streams to the same 'Input', which
     asynchronously merges their messages into the same mailbox:
@@ -280,12 +281,14 @@ import Data.Monoid
     Does it work the other way around?  What happens if the workers go on strike
     before processing the entire data set?
 
-> -- Each worker refuses to process more than two values
-> worker :: (Proxy p, Show a) => Int -> () -> Consumer p a IO ()
-> worker i () = runIdentityP $ replicateM_ 2 $ do
->     a <- request ()
->     lift $ threadDelay 1000000
->     lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
+>     ...
+>     as <- forM [1..3] $ \i ->
+>           -- Each worker refuses to process more than two values
+>           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
+>                      performGC
+>     ...
+
+    Let's find out:
 
 > $ ./work
 > How<Enter>
@@ -335,7 +338,7 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn Single
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> worker i
+>           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
 >                      performGC
 >     a  <- async $ do runProxy $ enumFromS 1 >-> printD >-> sendD input
 >                      performGC
@@ -417,9 +420,9 @@ import Data.Monoid
 -}
 
 {- $broadcast
-    You can also broadcast data to multiple consumers instead of dividing the
-    data.  To do this, just use the 'Monoid' instance for 'Input' to combine
-    each consumer's 'Input' ends together into a single combined 'Input' end:
+    You can also broadcast data to multiple listeners instead of dividing up the
+    data.  Just use the 'Monoid' instance for 'Input' to combine multiple
+    'Input' ends together into a single broadcast 'Input':
 
 > import Control.Monad
 > import Control.Concurrent.Async
@@ -430,21 +433,17 @@ import Data.Monoid
 > main = do
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
->     let inputs = input1 <> input2
-
-    Messages sent to @inputs@ will be broadcast to both @input1@ and @input2@:
-
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD inputs
+>         runProxy $ stdinS >-> sendD (input1 <> input2)
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
 >         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
 >         performGC
 >     mapM_ wait (a1:as)
 
-
-    @inputs@ will correctly shut down when both @input1@ and @input2@ shut down
-    (after receiving two broadcasts in this case):
+    In the above example, 'stdinS' will broadcast user input to both mailboxes,
+    and each mailbox forwards its values to 'stdoutD', echoing the message to
+    standard output:
 
 > $ ./broadcast
 > ABC<Enter>
@@ -456,10 +455,16 @@ import Data.Monoid
 > GHI<Enter>
 > $ 
 
-    To combine more than two inputs, use 'mconcat'.  However, combining a large
-    number of 'Input's will create a large 'STM' transaction and impact
-    performance.  You can improve performance for large broadcasts if you
-    sacrifice atomicity and manually combine multiple 'send' actions in 'IO'.
+    The combined 'Input' stays alive as long as any of the original 'Input's
+    remains alive.  In the above example, 'sendD' terminates on the third 'send'
+    attempt because it detects that both listeners died after receiving two
+    messages.
+
+    Use 'mconcat' to broadcast to a list of 'Input's, but keep in mind that you
+    will incur a performance price if you combine thousands of 'Input's or more
+    because they will create a very large 'STM' transaction.  You can improve
+    performance for very large broadcasts if you sacrifice atomicity and
+    manually combine multiple 'send' actions in 'IO' instead of 'STM'.
 -}
 
 {- $updates
@@ -483,9 +488,9 @@ import Data.Monoid
 >         threadDelay 1000000
 
     In this scenario you don't want to enforce a one-to-one correspondence
-    between input device updates and output device updates.  Instead, you just
-    want the output device to consult the 'Latest' value received from the
-    'Input':
+    between input device updates and output device updates because you don't
+    want either end to block waiting for the other end.  Instead, you just need
+    the output device to consult the 'Latest' value received from the 'Input':
 
 > import Control.Concurrent.Async
 > import Control.Proxy.Concurrent
@@ -515,9 +520,9 @@ import Data.Monoid
 > $
 
     A 'Latest' mailbox is never empty because it begins with a default value and
-    'recv' never empties the mailbox.  A 'Latest' mailbox is also never full
-    because 'send' always succeeds, overwriting the previous value stored in the
-    mailbox.
+    'recv' never removes the value from the mailbox.  A 'Latest' mailbox is also
+    never full because 'send' always succeeds, overwriting the previously stored
+    value.
 -}
 
 {- $callback
@@ -560,7 +565,7 @@ import Data.Monoid
 -}
 
 {- $safety
-    @pipes-concurrency@ avoids deadlocks, because 'send' and 'recv' always
+    @pipes-concurrency@ avoids deadlocks because 'send' and 'recv' always
     cleanly return before triggering a deadlock.  This behavior works even in
     complicated scenarios like:
 
@@ -580,11 +585,9 @@ import Data.Monoid
 > main = do
 >     (in1, out1) <- spawn Unbounded
 >     (in2, out2) <- spawn Unbounded
->     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1)
->                              >-> printD
->                              >-> sendD in2
+>     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1) >-> sendD in2
 >                      performGC
->     a2 <- async $ do runProxy $ recvS out2 >-> takeB_ 6 >-> sendD in1
+>     a2 <- async $ do runProxy $ recvS out2 >-> printD >-> takeB_ 6 >-> sendD in1
 >                      performGC
 >     mapM_ wait [a1, a2]
 
@@ -614,6 +617,10 @@ import Data.Monoid
 
     This promotes an actor-style approach to concurrent programming where
     pipelines behave like processes and mailboxes behave like ... mailboxes.
+
+    You can ask questions about @pipes-concurrency@ and other @pipes@ libraries
+    on the official @pipes@ mailing list at
+    <mailto:haskell-pipes@googlegroups.com>.
 -}
 
 {- $appendix
@@ -645,7 +652,7 @@ import Data.Monoid
 >     health <- get
 >     lift $ putStrLn $ "Health = " ++ show health
 >
-> user :: (Proxy p) => () -> Producer p Event IO ()
+> user :: (Proxy p) => () -> Producer p Event IO r
 > user () = runIdentityP $ forever $ do
 >     command <- lift getLine
 >     case command of
@@ -696,6 +703,7 @@ import Data.Monoid
 > --  (input, output) <- spawn (Bounded 100)
 >     as <- forM [1..3] $ \i ->
 >           async $ do runProxy $ recvS output >-> worker i
+> --        async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
 >                      performGC
 >     a  <- async $ do runProxy $ fromListS [1..10]      >-> sendD input
 > --  a  <- async $ do runProxy $ user                   >-> sendD input
@@ -714,9 +722,8 @@ import Data.Monoid
 > main = do
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
->     let inputs = input1 <> input2
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD inputs
+>         runProxy $ stdinS >-> sendD (input1 <> input2)
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
 >         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD

@@ -1,5 +1,5 @@
 Name: pipes-concurrency
-Version: 1.1.0
+Version: 1.2.0
 Cabal-Version: >=1.8.0.2
 Build-Type: Simple
 License: BSD3
@@ -32,8 +32,7 @@ Library
     Build-Depends:
         base         >= 4       && < 5  ,
         pipes        >= 3.0     && < 3.4,
-        stm          >= 2.4     && < 2.5,
-        transformers >= 0.2.0.0 && < 0.4
+        stm          >= 2.4     && < 2.5
     Exposed-Modules:
         Control.Proxy.Concurrent,
         Control.Proxy.Concurrent.Tutorial

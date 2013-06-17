@@ -51,7 +51,6 @@ import Control.Applicative (
     Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
-import Control.Monad.Trans.Class (lift)
 import qualified Control.Concurrent.STM as S
 import qualified Control.Proxy as P
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
@@ -67,73 +66,51 @@ spawn buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
-            let read = do
-                    ma <- S.readTBQueue q
-                    case ma of
-                        Nothing -> S.unGetTBQueue q ma
-                        _       -> return ()
-                    return ma
-            return (read, S.writeTBQueue q)
+            return (S.readTBQueue q, S.writeTBQueue q)
         Unbounded -> do
             q <- S.newTQueueIO
-            let read = do
-                    ma <- S.readTQueue q
-                    case ma of
-                        Nothing -> S.unGetTQueue q ma
-                        _       -> return ()
-                    return ma
-            return (read, S.writeTQueue q)
+            return (S.readTQueue q, S.writeTQueue q)
         Single    -> do
             m <- S.newEmptyTMVarIO
-            let read = do
-                    ma <- S.takeTMVar m
-                    case ma of
-                        Nothing -> S.putTMVar m ma
-                        _       -> return ()
-                    return ma
-            return (read, S.putTMVar m)
+            return (S.takeTMVar m, S.putTMVar m)
         Latest a  -> do
             t <- S.newTVarIO a
-            let write ma = case ma of
-                    Nothing -> return ()
-                    Just a  -> S.writeTVar t a
-            return (fmap Just (S.readTVar t), write)
+            return (S.readTVar t, S.writeTVar t)
 
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
-
-       The finalizer cannot anticipate how many listeners there are, so it only
-       writes a single 'Nothing' and trusts that the supplied 'read' action
-       will not consume the 'Nothing'.
-
-       The 'write' must be protected with the "pure ()" fallback so that it does
-       not deadlock if the 'Output' end has also been garbage collected.
     -}
-    rUp  <- newIORef ()
-    mkWeakIORef rUp (S.atomically $ write Nothing <|> pure ())
+    rSend  <- newIORef ()
+    doneSend <- S.newTVarIO False
+    mkWeakIORef rSend (S.atomically $ S.writeTVar doneSend True)
 
     {- Use an IORef to keep track of whether the 'Output' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rDn  <- newIORef ()
-    done <- S.newTVarIO False
-    mkWeakIORef rDn (S.atomically $ S.writeTVar done True)
+    rRecv  <- newIORef ()
+    doneRecv <- S.newTVarIO False
+    mkWeakIORef rRecv (S.atomically $ S.writeTVar doneRecv True)
 
-    let quit = do
-            b <- S.readTVar done
-            S.check b
-            return False
-        continue a = do
-            write (Just a)
-            return True
+    let sendOrEnd a = do
+          b <- S.readTVar doneRecv
+          if b
+            then return False
+            else do
+              write a
+              return True
+        readTestEnd = do
+          b <- S.readTVar doneSend
+          S.check b
+          return Nothing
         {- The '_send' action aborts if the 'Output' has been garbage collected,
            since there is no point wasting memory if nothing can empty the
            mailbox.  This protects against careless users not checking send's
            return value, especially if they use a mailbox of 'Unbounded' size.
         -}
-        _send a = (quit <|> continue a) <* unsafeIOToSTM (readIORef rUp)
-        _recv = read <* unsafeIOToSTM (readIORef rDn)
-    return (Input _send , Output _recv)
+        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
+        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rRecv)
+    return (Input _send, Output _recv)
+{-# INLINABLE spawn #-}
 
 {-| 'Buffer' specifies how to store messages sent to the 'Input' end until the
     'Output' receives them.
@@ -165,8 +142,8 @@ newtype Input a = Input {
     send :: a -> S.STM Bool }
 
 instance Monoid (Input a) where
-    mempty        = Input (\_ -> pure False)
-    mappend i1 i2 = Input (\a -> (||) <$> (send i1 a) <*> (send i2 a))
+    mempty  = Input (\_ -> return False)
+    mappend i1 i2 = Input (\a -> (||) <$> send i1 a <*> send i2 a)
 
 -- | Retrieves messages from the mailbox
 newtype Output a = Output {
@@ -194,23 +171,25 @@ instance Monad Output where
     m >>= f  = Output $ do
         ma <- recv m
         case ma of
-	    Nothing -> return Nothing
-	    Just a  -> recv (f a)
+            Nothing -> return Nothing
+            Just a  -> recv (f a)
 
 instance Alternative Output where
-    empty = Output empty
+    empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
 
 {-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
 
     'sendD' terminates when the corresponding 'Output' is garbage collected.
+
+> sendD :: (P.Proxy p) => Input a -> () -> Pipe p a a IO ()
 -}
 sendD :: (P.Proxy p) => Input a -> x -> p x a x a IO ()
 sendD input = P.runIdentityK loop
   where
     loop x = do
         a <- P.request x
-        alive <- lift $ S.atomically $ send input a
+        alive <- P.lift $ S.atomically $ send input a
         if alive
             then do
                 x2 <- P.respond a
@@ -222,14 +201,16 @@ sendD input = P.runIdentityK loop
 
     'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
     is garbage collected.
+
+> recvS :: (Proxy p) => Output a -> () -> Producer p a IO ()
 -}
-recvS :: (P.Proxy p) => Output a -> () -> P.Producer p a IO ()
-recvS output () = P.runIdentityP go
+recvS :: (P.Proxy p) => Output a -> r -> p x' x y' a IO r
+recvS output r = P.runIdentityP go
   where
     go = do
-        ma <- lift $ S.atomically $ recv output
+        ma <- P.lift $ S.atomically $ recv output
         case ma of
-            Nothing -> return ()
+            Nothing -> return r
             Just a  -> do
                 P.respond a
                 go
