@@ -25,7 +25,7 @@
     to combine them into larger transactions.
 -}
 
-module Control.Proxy.Concurrent (
+module Pipes.Concurrent (
     -- * Spawn mailboxes
     spawn,
     Buffer(..),
@@ -52,10 +52,11 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
-import qualified Control.Proxy as P
+import Control.Monad (when)
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
+import qualified Pipes as P
 import System.Mem (performGC)
 
 {-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
@@ -178,39 +179,31 @@ instance Alternative Output where
     empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
 
-{-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
+{-| Convert an 'Input' to a 'P.Consumer'
 
     'sendD' terminates when the corresponding 'Output' is garbage collected.
-
-> sendD :: (P.Proxy p) => Input a -> () -> Pipe p a a IO ()
 -}
-sendD :: (P.Proxy p) => Input a -> x -> p x a x a IO ()
-sendD input = P.runIdentityK loop
+sendD :: Input a -> () -> P.Consumer a IO ()
+sendD input () = go
   where
-    loop x = do
-        a <- P.request x
+    go = do
+        a     <- P.request ()
         alive <- P.lift $ S.atomically $ send input a
-        if alive
-            then do
-                x2 <- P.respond a
-                loop x2
-            else return ()
+        when alive go
 {-# INLINABLE sendD #-}
 
 {-| Convert an 'Output' to a 'P.Producer'
 
     'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
     is garbage collected.
-
-> recvS :: (Proxy p) => Output a -> () -> Producer p a IO ()
 -}
-recvS :: (P.Proxy p) => Output a -> r -> p x' x y' a IO r
-recvS output r = P.runIdentityP go
+recvS :: Output a -> () -> P.Producer a IO ()
+recvS output () = go
   where
     go = do
         ma <- P.lift $ S.atomically $ recv output
         case ma of
-            Nothing -> return r
+            Nothing -> return ()
             Just a  -> do
                 P.respond a
                 go

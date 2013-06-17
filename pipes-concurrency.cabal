@@ -30,10 +30,10 @@ Source-Repository head
 
 Library
     Build-Depends:
-        base         >= 4       && < 5  ,
-        pipes        >= 3.0     && < 3.4,
-        stm          >= 2.4     && < 2.5
+        base         >= 4   && < 5  ,
+        pipes        >= 4.0 && < 4.1,
+        stm          >= 2.4 && < 2.5
     Exposed-Modules:
-        Control.Proxy.Concurrent,
-        Control.Proxy.Concurrent.Tutorial
+        Pipes.Concurrent,
+        Pipes.Concurrent.Tutorial
     GHC-Options: -O2

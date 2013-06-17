@@ -7,7 +7,7 @@
     the Appendix section that you can use to follow along.
 -}
 
-module Control.Proxy.Concurrent.Tutorial (
+module Pipes.Concurrent.Tutorial (
     -- * Introduction
     -- $intro
 
@@ -39,8 +39,8 @@ module Control.Proxy.Concurrent.Tutorial (
     -- $appendix
     ) where
 
-import Control.Proxy
-import Control.Proxy.Concurrent
+import Pipes
+import Pipes.Concurrent
 import Data.Monoid
 
 {- $intro
