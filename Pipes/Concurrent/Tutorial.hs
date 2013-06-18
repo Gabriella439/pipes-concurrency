@@ -327,9 +327,14 @@ import Data.Monoid
     This is why we have to insert 'performGC' calls whenever we release a
     reference to either the 'Input' or 'Output'.  Without these calls we cannot
     guarantee that the garbage collector will trigger and notify the opposing
-    end if the last reference was released.  If you forget to insert a
-    'performGC' call then termination will delay until the next garbage
-    collection cycle.
+    end if the last reference was released.
+
+    You can also opt to not use 'performGC' at all.  This is preferable for
+    long-running programs and it is completely safe.  When you omit the
+    'performGC' call you simply delay garbage collecting mailboxes until the
+    next garbage collection cycle.  However, this tutorial will continue to use
+    `performGC` since all the examples are short-lived programs that need to
+    terminate promptly.
 -}
 
 {- $mailbox

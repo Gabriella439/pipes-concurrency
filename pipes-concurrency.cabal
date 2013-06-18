@@ -20,10 +20,10 @@ Description: This library provides light-weight concurrency primitives for
   .
   * /Dynamic Graphs/: Add or remove readers and writers at any time
   .
-  Import "Control.Proxy.Concurrent" to use the library.
+  Import "Pipes.Concurrent" to use the library.
   .
-  Read "Control.Proxy.Concurrent.Tutorial" for an tutorial.
-Category: Control, Pipes, Proxies, Concurrency
+  Read "Pipes.Concurrent.Tutorial" for an tutorial.
+Category: Control, Pipes, Concurrency
 Source-Repository head
     Type: git
     Location: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library
