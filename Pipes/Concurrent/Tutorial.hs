@@ -139,9 +139,9 @@ import Data.Monoid
     asynchronously merges their messages into the same mailbox:
 
 >     ...
->     forkIO $ do runProxy $ (acidRain >-> toInput input) ()
+>     forkIO $ do runEffect $ (acidRain >-> toInput input) ()
 >                 performGC  -- I'll explain 'performGC' below
->     forkIO $ do runProxy $ (user     >-> toInput input) ()
+>     forkIO $ do runEffect $ (user     >-> toInput input) ()
 >                 performGC
 >     ...
 
@@ -154,18 +154,18 @@ import Data.Monoid
     both @Event@ sources:
 
 >     ...
->     runMaybeT $ (`evalStateT` 100) $ runProxy $
+>     runMaybeT $ (`evalStateT` 100) $ runEffect $
 >        (hoist (lift . lift) . fromOutput output >-> handler) ()
 
     Our final @main@ becomes:
 
 > main = do
 >     (input, output) <- spawn Unbounded
->     forkIO $ do runProxy $ (acidRain >-> toInput input) ()
+>     forkIO $ do runEffect $ (acidRain >-> toInput input) ()
 >                 performGC
->     forkIO $ do runProxy $ (user     >-> toInput input) ()
+>     forkIO $ do runEffect $ (user     >-> toInput input) ()
 >                 performGC
->     runMaybeT $ (`evalStateT` 100) $ runProxy $
+>     runMaybeT $ (`evalStateT` 100) $ runEffect $
 >        (hoist (lift . lift) . fromOutput output >-> handler) ()
 
     ... and when we run it we get the desired concurrent behavior:
@@ -211,9 +211,9 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ (fromOutput output >-> worker i) ()
+>           async $ do runEffect $ (fromOutput output >-> worker i) ()
 >                      performGC
->     a  <- async $ do runProxy $ (P.fromList [1..10] >-> toInput input) ()
+>     a  <- async $ do runEffect $ (P.fromList [1..10] >-> toInput input) ()
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -242,9 +242,9 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ (fromOutput output >-> worker i) ()
+>           async $ do runEffect $ (fromOutput output >-> worker i) ()
 >                      performGC
->     a  <- async $ do runProxy $ (user >-> toInput input) ()
+>     a  <- async $ do runEffect $ (user >-> toInput input) ()
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -290,7 +290,7 @@ import Data.Monoid
 >     ...
 >     as <- forM [1..3] $ \i ->
 >           -- Each worker refuses to process more than two values
->           async $ do runProxy $
+>           async $ do runEffect $
 >                          (fromOutput output >-> P.take 2 >-> worker i) ()
 >                      performGC
 >     ...
@@ -350,11 +350,11 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn Single
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $
+>           async $ do runEffect $
 >                          (fromOutput output >-> P.take 2 >-> worker i) ()
 >                      performGC
 >     a  <- async $ do
->         runProxy $ (P.fromList [(1::Int)..] >-> P.tee P.print >-> toInput input) ()
+>         runEffect $ (P.fromList [(1::Int)..] >-> P.tee P.print >-> toInput input) ()
 >         performGC
 >     mapM_ wait (a:as)
 
@@ -449,10 +449,10 @@ import Data.Monoid
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
 >     a1 <- async $ do
->         runProxy $ (P.stdin >-> toInput (input1 <> input2)) ()
+>         runEffect $ (P.stdin >-> toInput (input1 <> input2)) ()
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
->         runProxy $ (fromOutput output >-> P.take 2 >-> P.stdout) ()
+>         runEffect $ (fromOutput output >-> P.take 2 >-> P.stdout) ()
 >         performGC
 >     mapM_ wait (a1:as)
 
@@ -514,10 +514,10 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn (Latest 0)
 >     a1 <- async $ do
->         runProxy $ (inputDevice >-> toInput input) ()
+>         runEffect $ (inputDevice >-> toInput input) ()
 >         performGC
 >     a2 <- async $ do
->         runProxy $ (fromOutput output >-> P.take 5 >-> outputDevice) ()
+>         runEffect $ (fromOutput output >-> P.take 5 >-> outputDevice) ()
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -567,7 +567,7 @@ import Data.Monoid
 >     lift $ forkIO $ onLines (\str -> atomically $ send input str)
 >     fromOutput output ()
 > 
-> main = runProxy $ (onLines' >-> P.takeWhile (/= "quit") >-> P.stdout) ()
+> main = runEffect $ (onLines' >-> P.takeWhile (/= "quit") >-> P.stdout) ()
 
     Now we can stream from the callback as if it were an ordinary 'Producer':
 
@@ -604,10 +604,10 @@ import Data.Monoid
 >     (in1, out1) <- spawn Unbounded
 >     (in2, out2) <- spawn Unbounded
 >     a1 <- async $ do
->         runProxy $ ((P.fromList [1,2] >=> fromOutput out1) >-> toInput in2) ()
+>         runEffect $ ((P.fromList [1,2] >=> fromOutput out1) >-> toInput in2) ()
 >         performGC
 >     a2 <- async $ do
->         runProxy $ (fromOutput out2 >-> P.tee P.print >-> P.take 6 >-> toInput in1) ()
+>         runEffect $ (fromOutput out2 >-> P.tee P.print >-> P.take 6 >-> toInput in1) ()
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -689,11 +689,11 @@ import Data.Monoid
 > 
 > main = do
 >     (input, output) <- spawn Unbounded
->     forkIO $ do runProxy $ (acidRain >-> toInput input) ()
+>     forkIO $ do runEffect $ (acidRain >-> toInput input) ()
 >                 performGC
->     forkIO $ do runProxy $ (user     >-> toInput input) ()
+>     forkIO $ do runEffect $ (user     >-> toInput input) ()
 >                 performGC
->     runMaybeT $ (`evalStateT` 100) $ runProxy $
+>     runMaybeT $ (`evalStateT` 100) $ runEffect $
 >        (hoist (lift . lift) . fromOutput output >-> handler) ()
 
 > -- work.hs
@@ -723,13 +723,13 @@ import Data.Monoid
 >     let consumer1 i =              worker i
 >         consumer2 i = P.take 2 >-> worker i
 >     as <- forM [1..3] $ \i -> async $ do
->         runProxy $ (fromOutput output >-> consumer1 i) ()
+>         runEffect $ (fromOutput output >-> consumer1 i) ()
 >         performGC
 > 
 >     let producer1 = P.fromList [1..10]
 >         producer2 = user
 >         producer3 = P.fromList [1..] >-> P.tee P.print
->     a  <- async $ do runProxy $ (producer1 >-> toInput input) ()
+>     a  <- async $ do runEffect $ (producer1 >-> toInput input) ()
 >                      performGC
 > 
 >     mapM_ wait (a:as)
@@ -757,10 +757,10 @@ import Data.Monoid
 > main = do
 >     (input, output) <- spawn (Latest 0)
 >     a1 <- async $ do
->         runProxy $ (inputDevice >-> toInput input) ()
+>         runEffect $ (inputDevice >-> toInput input) ()
 >         performGC
 >     a2 <- async $ do
->         runProxy $ (fromOutput output >-> P.take 5 >-> outputDevice) ()
+>         runEffect $ (fromOutput output >-> P.take 5 >-> outputDevice) ()
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -782,5 +782,5 @@ import Data.Monoid
 >     lift $ forkIO $ onLines (\str -> atomically $ send input str)
 >     fromOutput output ()
 > 
-> main = runProxy $ (onLines' >-> P.takeWhile (/= "quit") >-> P.stdout) ()
+> main = runEffect $ (onLines' >-> P.takeWhile (/= "quit") >-> P.stdout) ()
 -}
