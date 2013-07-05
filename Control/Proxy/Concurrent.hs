@@ -63,19 +63,19 @@ import System.Mem (performGC)
 -}
 spawn :: Buffer a -> IO (Input a, Output a)
 spawn buffer = do
-    (read, write) <- case buffer of
+    (read, write, canCheckSenderDone) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
-            return (S.readTBQueue q, S.writeTBQueue q)
+            return (S.readTBQueue q, S.writeTBQueue q, S.isEmptyTBQueue q)
         Unbounded -> do
             q <- S.newTQueueIO
-            return (S.readTQueue q, S.writeTQueue q)
+            return (S.readTQueue q, S.writeTQueue q, S.isEmptyTQueue q)
         Single    -> do
             m <- S.newEmptyTMVarIO
-            return (S.takeTMVar m, S.putTMVar m)
+            return (S.takeTMVar m, S.putTMVar m, S.isEmptyTMVar m)
         Latest a  -> do
             t <- S.newTVarIO a
-            return (S.readTVar t, S.writeTVar t)
+            return (S.readTVar t, S.writeTVar t, return True)
 
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
@@ -98,17 +98,23 @@ spawn buffer = do
             else do
               write a
               return True
-        readTestEnd = do
-          b <- S.readTVar doneSend
-          S.check b
-          return Nothing
+        isSenderDone = do
+          canCheck <- canCheckSenderDone
+          if canCheck
+            then S.readTVar doneSend
+            else return False
+        readOrEnd = do
+          senderDone <- isSenderDone
+          if senderDone
+            then return Nothing
+            else Just <$> read
         {- The '_send' action aborts if the 'Output' has been garbage collected,
            since there is no point wasting memory if nothing can empty the
            mailbox.  This protects against careless users not checking send's
            return value, especially if they use a mailbox of 'Unbounded' size.
         -}
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
-        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rRecv)
+        _recv = readOrEnd <* unsafeIOToSTM (readIORef rRecv)
     return (Input _send, Output _recv)
 {-# INLINABLE spawn #-}
 
