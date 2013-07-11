@@ -183,7 +183,7 @@ instance Alternative Output where
 
     'toInput' terminates when the corresponding 'Output' is garbage collected.
 -}
-toInput :: Input a -> () -> P.Consumer a IO ()
+toInput :: Input a -> () -> P.Consumer' a IO ()
 toInput input () = go
   where
     go = do
@@ -197,7 +197,7 @@ toInput input () = go
     'fromOutput' terminates when the 'Buffer' is empty and the corresponding
     'Input' is garbage collected.
 -}
-fromOutput :: Output a -> () -> P.Producer a IO ()
+fromOutput :: Output a -> () -> P.Producer' a IO ()
 fromOutput output () = go
   where
     go = do
