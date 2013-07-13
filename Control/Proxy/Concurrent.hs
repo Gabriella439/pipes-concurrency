@@ -7,7 +7,7 @@
 #endif
 {- 'unsafeIOToSTM' requires the Trustworthy annotation.
 
-    I use 'unsafeIOToSTM' to touch an IORef to mark it as still alive. This
+    I use 'unsafeIOToSTM' to touch IORefs to mark them as still alive. This
     action satisfies the necessary safety requirements because:
 
     * You can safely repeat it if the transaction rolls back
@@ -80,35 +80,36 @@ spawn buffer = do
     {- Use an IORef to keep track of whether the 'Input' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rSend  <- newIORef ()
+    rSend    <- newIORef ()
     doneSend <- S.newTVarIO False
     mkWeakIORef rSend (S.atomically $ S.writeTVar doneSend True)
 
     {- Use an IORef to keep track of whether the 'Output' end has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rRecv  <- newIORef ()
+    rRecv    <- newIORef ()
     doneRecv <- S.newTVarIO False
     mkWeakIORef rRecv (S.atomically $ S.writeTVar doneRecv True)
 
     let sendOrEnd a = do
-          b <- S.readTVar doneRecv
-          if b
-            then return False
-            else do
-              write a
-              return True
-        readTestEnd = do
-          b <- S.readTVar doneSend
-          S.check b
-          return Nothing
-        {- The '_send' action aborts if the 'Output' has been garbage collected,
-           since there is no point wasting memory if nothing can empty the
-           mailbox.  This protects against careless users not checking send's
-           return value, especially if they use a mailbox of 'Unbounded' size.
+            b <- S.readTVar doneRecv
+            if b
+                then return False
+                else do
+                    write a
+                    return True
+        {- The '_send' action aborts without writing a value to the 'Buffer' if
+           the 'Output' has been garbage collected, since there is no point
+           wasting memory if nothing can empty the mailbox.  This protects
+           against careless users not checking send's return value, especially
+           if they use a mailbox of 'Unbounded' size.
         -}
+        readOrEnd = (Just <$> read) <|> (do
+            b <- S.readTVar doneSend
+            S.check b
+            return Nothing )
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
-        _recv = (Just <$> read <|> readTestEnd) <* unsafeIOToSTM (readIORef rRecv)
+        _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
     return (Input _send, Output _recv)
 {-# INLINABLE spawn #-}
 
@@ -174,6 +175,7 @@ instance Monad Output where
             Nothing -> return Nothing
             Just a  -> recv (f a)
 
+-- Deriving 'Alternative'
 instance Alternative Output where
     empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
@@ -182,7 +184,7 @@ instance Alternative Output where
 
     'sendD' terminates when the corresponding 'Output' is garbage collected.
 
-> sendD :: (P.Proxy p) => Input a -> () -> Pipe p a a IO ()
+> sendD :: (Proxy p) => Input a -> () -> Pipe p a a IO ()
 -}
 sendD :: (P.Proxy p) => Input a -> x -> p x a x a IO ()
 sendD input = P.runIdentityK loop
