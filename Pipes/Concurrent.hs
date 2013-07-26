@@ -183,13 +183,14 @@ instance Alternative Output where
 
     'toInput' terminates when the corresponding 'Output' is garbage collected.
 -}
-toInput :: Input a -> () -> P.Consumer' a IO ()
-toInput input () = go
+toInput :: Input a -> a -> P.Consumer' a IO ()
+toInput input = go
   where
-    go = do
-        a     <- P.request ()
+    go a = do
         alive <- P.lift $ S.atomically $ send input a
-        when alive go
+        when alive $ do
+            a2 <- P.await ()
+            go a2
 {-# INLINABLE toInput #-}
 
 {-| Convert an 'Output' to a 'P.Producer'
@@ -197,15 +198,15 @@ toInput input () = go
     'fromOutput' terminates when the 'Buffer' is empty and the corresponding
     'Input' is garbage collected.
 -}
-fromOutput :: Output a -> () -> P.Producer' a IO ()
-fromOutput output () = go
+fromOutput :: Output a -> P.Producer' a IO ()
+fromOutput output = go
   where
     go = do
         ma <- P.lift $ S.atomically $ recv output
         case ma of
             Nothing -> return ()
             Just a  -> do
-                P.respond a
+                P.yield a
                 go
 {-# INLINABLE fromOutput #-}
 
