@@ -57,6 +57,7 @@ import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
 import qualified Pipes as P
+import qualified Pipes.Core as P
 import System.Mem (performGC)
 
 {-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
@@ -189,7 +190,7 @@ toInput input = go
     go a = do
         alive <- P.lift $ S.atomically $ send input a
         when alive $ do
-            a2 <- P.await ()
+            a2 <- P.await
             go a2
 {-# INLINABLE toInput #-}
 
