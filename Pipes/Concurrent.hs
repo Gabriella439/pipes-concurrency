@@ -56,7 +56,8 @@ import Control.Monad (when)
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
-import qualified Pipes as P
+import Pipes (lift, yield, await)
+import Pipes.Core (Producer', Consumer')
 import qualified Pipes.Core as P
 import System.Mem (performGC)
 
@@ -180,35 +181,34 @@ instance Alternative Output where
     empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
 
-{-| Convert an 'Input' to a 'P.Consumer'
+{-| Convert an 'Input' to a 'Pipes.Consumer'
 
     'toInput' terminates when the corresponding 'Output' is garbage collected.
 -}
-toInput :: Input a -> a -> P.Consumer' a IO ()
-toInput input = go
+toInput :: Input a -> Consumer' a IO ()
+toInput input = loop
   where
-    go a = do
-        alive <- P.lift $ S.atomically $ send input a
-        when alive $ do
-            a2 <- P.await
-            go a2
+    loop = do
+        a     <- await
+        alive <- lift $ S.atomically $ send input a
+        when alive loop
 {-# INLINABLE toInput #-}
 
-{-| Convert an 'Output' to a 'P.Producer'
+{-| Convert an 'Output' to a 'Pipes.Producer'
 
     'fromOutput' terminates when the 'Buffer' is empty and the corresponding
     'Input' is garbage collected.
 -}
-fromOutput :: Output a -> P.Producer' a IO ()
-fromOutput output = go
+fromOutput :: Output a -> Producer' a IO ()
+fromOutput output = loop
   where
-    go = do
-        ma <- P.lift $ S.atomically $ recv output
+    loop = do
+        ma <- lift $ S.atomically $ recv output
         case ma of
             Nothing -> return ()
             Just a  -> do
-                P.yield a
-                go
+                yield a
+                loop
 {-# INLINABLE fromOutput #-}
 
 {- $reexport
