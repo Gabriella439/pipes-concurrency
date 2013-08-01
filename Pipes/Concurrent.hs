@@ -1,6 +1,6 @@
 -- | Asynchronous communication between proxies
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, RankNTypes#-}
 
 #if __GLASGOW_HASKELL__ >= 702
 {-# LANGUAGE Trustworthy #-}
