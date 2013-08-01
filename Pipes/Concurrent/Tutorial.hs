@@ -136,10 +136,10 @@ main = do
 @
     ...
     forkIO $ do 'run' $ lift user '>~'  'toInput' input
-                'performGC'  -- I'll explain \'performGC\' below
+                performGC  -- I'll explain \'performGC\' below
 
 \    forkIO $ do 'run' $ acidRain  '>->' 'toInput' input
-                'performGC'
+                performGC
     ...
 @
 
@@ -172,22 +172,20 @@ handler = loop 100
 
 @
     ...
-    'run' $ 'fromOutput' output '>->' handler
+    run $ 'fromOutput' output '>->' handler
 @
 
     Our final @main@ looks like this:
 
-@
-main = do
-    (input, output) <- 'spawn' 'Unbounded'
-
-\    forkIO $ do 'run' $ acidRain  '>->' 'toInput' input
-                'performGC'
-    forkIO $ do 'run' $ lift user '>~'  'toInput' input
-                'performGC'
-
-\    'run' $ 'fromOutput' output '>->' handler
-@
+>main = do
+>    (input, output) <- spawn Unbounded
+>
+>    forkIO $ do run $ acidRain  >-> toInput input
+>                performGC
+>    forkIO $ do run $ lift user >~  toInput input
+>                performGC
+>
+>    run $ fromOutput output >-> handler
 
     ... and when we run it we get the desired concurrent behavior:
 
