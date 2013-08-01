@@ -39,6 +39,8 @@ module Pipes.Concurrent.Tutorial (
     -- $appendix
     ) where
 
+import Control.Concurrent
+import Control.Monad
 import Pipes
 import Pipes.Concurrent
 import qualified Pipes.Prelude as P
@@ -59,71 +61,52 @@ import Data.Monoid
 
     * implement basic functional reactive programming (FRP).
 
-    For example, let's say that we design a simple game with a single unit's
-    health as the global state.  We'll define an event handler that modifies the
-    unit's health in response to events:
+    For example, let's say that we want to design a simple game with two
+    concurrent sources of game @Event@s.
+
+    One source translates user input to game events:
 
 @
-import Control.Monad
-import Control.Monad.IO.Class
-import Control.Monad.Trans.State.Strict
-import Control.Monad.Trans.Maybe
-import Pipes
+-- The game events
+data Event = Harm Integer | Heal Integer | Quit deriving (Show)
 
-\-\- The game events
-data Event = Harm Integer | Heal Integer | Quit
-
-\-\- The game state
-type Health = Integer
-
-handler :: () -> 'Consumer' Event (StateT Health (MaybeT IO)) r
-handler () = forever $ do
-    event  <- 'await' ()
-    health <- 'lift' $ do
-        case event of
-            Harm n -> modify (subtract n)
-            Heal n -> modify (+        n)
-            Quit   -> mzero
-        get
-    liftIO $ putStrLn $ \"Health = \" ++ show health
-@
-
-    However, we have two concurrent event sources that we wish to hook up to our
-    event handler.  One translates user input to game events:
-
-@
-user :: () -> 'Producer' Event IO r
-user () = forever $ do
-    command <- 'lift' getLine
+user :: IO Event
+user = do
+    command \<- getLine
     case command of
-        \"potion\" -> 'yield' (Heal 10)
-        \"quit\"   -> 'yield'  Quit
-        _        -> 'lift' $ putStrLn \"Invalid command\"
+        \"potion\" -> return (Heal 10)
+        \"quit\"   -> return  Quit
+        _        -> do
+            putStrLn \"Invalid command\"
+            user  -- Try again
 @
 
     ... while the other creates inclement weather:
 
 @
-import Control.Concurrent
+import Control.Concurrent (threadDelay)
+import Control.Monad (forever)
+import "Pipes"
 
-acidRain :: () -> 'Producer' Event IO r
-acidRain () = forever $ do
+acidRain :: 'Producer' Event IO r
+acidRain = forever $ do
+    lift $ threadDelay 2000000  -- Wait 2 seconds
     'yield' (Harm 1)
-    'lift' $ threadDelay 2000000
 @
 
-    To merge these sources, we 'spawn' a new FIFO mailbox which we will use to
-    merge the two streams of asynchronous events:
+    We can asynchronously merge these two separate sources of @Event@s into a
+    single stream by 'spawn'ing a first-in-first-out (FIFO) mailbox:
 
 @
 'spawn' :: 'Buffer' a -> IO ('Input' a, 'Output' a)
 @
 
-    'spawn' takes a mailbox 'Buffer' as an argument, and we will specify that we
-    want our mailbox to store an 'Unbounded' number of messages:
+    'spawn' takes a 'Buffer' as an argument which specifies how many messages to
+    store.  In this case we want our mailbox to store an 'Unbounded' number of
+    messages:
 
 @
-import Pipes.Concurrent
+import "Pipes.Concurrent"
 
 main = do
     (input, output) <- 'spawn' 'Unbounded'
@@ -144,7 +127,7 @@ main = do
     to the mailbox's 'Input' end:
 
 @
-'toInput' :: 'Input' a -> () -> 'Consumer' a IO ()
+'toInput' :: 'Input' a -> 'Consumer' a IO ()
 @
 
     We can concurrently forward multiple streams to the same 'Input', which
@@ -152,58 +135,74 @@ main = do
 
 @
     ...
-    forkIO $ do 'run' $ (acidRain >-> 'toInput' input) ()
-                'performGC'  \-\- I'll explain 'performGC' below
-    forkIO $ do 'run' $ (user     >-> 'toInput' input) ()
+    forkIO $ do 'run' $ lift user '>~'  'toInput' input
+                'performGC'  -- I'll explain \'performGC\' below
+
+\    forkIO $ do 'run' $ acidRain  '>->' 'toInput' input
                 'performGC'
     ...
 @
 
-    To stream @Event@s out of the mailbox, we use 'fromOutput', which reads
-    values from the mailbox's 'Output' end:
+    To stream @Event@s out of the mailbox, we use 'fromOutput', which streams
+    values from the mailbox's 'Output' end using a 'Producer':
 
 @
-'fromOutput' :: 'Output' a -> () -> 'Producer' a IO ()
+'fromOutput' :: 'Output' a -> 'Producer' a IO ()
 @
 
-    We will forward our merged stream to our @handler@ so that it can listen to
-    both @Event@ sources:
+    For this example we'll build a 'Consumer' to handle this stream of @Event@s,
+    that either harms or heals our intrepid adventurer depending on which
+    @Event@ we receive:
+
+@
+handler :: 'Consumer' Event IO ()
+handler = loop 100
+  where
+    loop health = do
+        lift $ putStrLn $ \"Health = \" ++ show health
+        event <- 'await'
+        case event of
+            Harm n -> loop (health - n)
+            Heal n -> loop (health + n)
+            Quit   -> return ()
+@
+
+    Now we can just connect our @Event@ 'Producer' to our @Event@ 'Consumer'
+    using ('>->'):
 
 @
     ...
-    'runMaybeT' $ (`'evalStateT'` 100) $ 'run' $
-       ('hoist' ('lift' . 'lift') . 'fromOutput' output >-> handler) ()
+    'run' $ 'fromOutput' output '>->' handler
 @
 
-    Our final @main@ becomes:
+    Our final @main@ looks like this:
 
 @
 main = do
     (input, output) <- 'spawn' 'Unbounded'
-    forkIO $ do 'run' $ (acidRain >-> 'toInput' input) ()
+
+\    forkIO $ do 'run' $ acidRain  '>->' 'toInput' input
                 'performGC'
-    forkIO $ do 'run' $ (user     >-> 'toInput' input) ()
+    forkIO $ do 'run' $ lift user '>~'  'toInput' input
                 'performGC'
-    'runMaybeT' $ (`'evalStateT'` 100) $ 'run' $
-       ('hoist' ('lift' . 'lift') . 'fromOutput' output >-> handler) ()
+
+\    'run' $ 'fromOutput' output '>->' handler
 @
 
     ... and when we run it we get the desired concurrent behavior:
 
-@
-$ ./game
-Health = 99
-Health = 98
-potion\<Enter\>
-Health = 108
-Health = 107
-Health = 106
-potion\<Enter\>
-Health = 116
-Health = 115
-quit\<Enter\>
-$
-@
+> $ ./game
+> Health = 99
+> Health = 98
+> potion<Enter>
+> Health = 108
+> Health = 107
+> Health = 106
+> potion<Enter>
+> Health = 116
+> Health = 115
+> quit<Enter>
+> $
 -}
 
 {- $steal
@@ -235,10 +234,10 @@ import Pipes.Concurrent
 
 main = do
     (input, output) <- 'spawn' 'Unbounded'
-    as <- 'forM' [1..3] $ \i ->
+    as \<- 'forM' [1..3] $ \i -\>
           async $ do 'run' $ ('fromOutput' output >-> worker i) ()
                      'performGC'
-    a  <- async $ do 'run' $ (P.fromList [1..10] >-> 'toInput' input) ()
+    a  \<- async $ do 'run' $ (P.fromList [1..10] >-> 'toInput' input) ()
                      'performGC'
     mapM_ 'wait' (a:as)
 @
@@ -270,10 +269,10 @@ user = P.stdin >-> P.takeWhile (/= \"quit\")
 
 main = do
     (input, output) <- 'spawn' 'Unbounded'
-    as <- 'forM' [1..3] $ \i ->
+    as \<- 'forM' [1..3] $ \i ->
           async $ do 'run' $ ('fromOutput' output >-> worker i) ()
                      'performGC'
-    a  <- async $ do 'run' $ (user >-> 'toInput' input) ()
+    a  \<- async $ do 'run' $ (user >-> 'toInput' input) ()
                      'performGC'
     mapM_ 'wait' (a:as)
 @
@@ -323,7 +322,7 @@ $
 
 @
     ...
-    as <- 'forM' [1..3] $ \i ->
+    as \<- 'forM' [1..3] $ \i ->
           \-\- Each worker refuses to process more than two values
           async $ do 'run' $
                          ('fromOutput' output >-> P.take 2 >-> worker i) ()
@@ -390,7 +389,7 @@ $
 @
 main = do
     (input, output) <- 'spawn' 'Single'
-    as <- 'forM' [1..3] $ \i ->
+    as \<- 'forM' [1..3] $ \i ->
           async $ do 'run' $
                          ('fromOutput' output >-> P.take 2 >-> worker i) ()
                      'performGC'
@@ -502,7 +501,7 @@ main = do
     a1 <- async $ do
         'run' $ (P.stdin >-> 'toInput' (input1 <> input2)) ()
         'performGC'
-    as <- forM [output1, output2] $ \output -> async $ do
+    as \<- forM [output1, output2] $ \output -> async $ do
         'run' $ ('fromOutput' output >-> P.take 2 >-> P.stdout) ()
         'performGC'
     mapM_ 'wait' (a1:as)
