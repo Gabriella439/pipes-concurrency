@@ -359,17 +359,12 @@ import Data.Monoid
     observe this by sending an infinite stream of values, logging all values to
     the console:
 
-> debug :: (Show a) => a -> Producer a IO ()
-> debug a = do
->     lift $ print a
->     yield a
->
 > main = do
 >     (input, output) <- spawn Single
 >     as <- forM [1..3] $ \i ->
 >           async $ do run $ fromOutput output >-> P.take 2 >-> worker i
 >                      performGC
->     a  <- async $ do run $ for (each [1..]) debug >-> toInput input
+>     a  <- async $ do run $ for (each [1..]) P.debug >-> toInput input
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -453,6 +448,8 @@ import Data.Monoid
     data.  Just use the 'Monoid' instance for 'Input' to combine multiple
     'Input' ends together into a single broadcast 'Input':
 
+> -- broadcast.hs
+>
 > import Control.Monad
 > import Control.Concurrent.Async
 > import Pipes
@@ -503,6 +500,7 @@ import Data.Monoid
     input device updates at a different pace than the output device
 
 > import Control.Concurrent (threadDelay)
+> import Control.Monad
 > import Pipes
 > import qualified Pipes.Prelude as P
 > 
@@ -528,12 +526,10 @@ import Data.Monoid
 > 
 > main = do
 >     (input, output) <- spawn (Latest 0)
->     a1 <- async $ do
->         run $ inputDevice >-> toInput input
->         performGC
->     a2 <- async $ do
->         run $ fromOutput output >-> P.take 5 >-> outputDevice
->         performGC
+>     a1 <- async $ do run $ inputDevice >-> toInput input
+>                      performGC
+>     a2 <- async $ do run $ fromOutput output >-> P.take 5 >-> outputDevice
+>                      performGC
 >     mapM_ wait [a1, a2]
 
     'Latest' selects a mailbox that always stores exactly one value.  The
@@ -543,11 +539,11 @@ import Data.Monoid
     consuming it.  In the above example the @outputDevice@ periodically peeks at    the latest value stashed inside the mailbox:
 
 > $ ./peek
-> 5
-> 752452
-> 1502636
-> 2248278
-> 2997705
+> 7
+> 2626943
+> 5303844
+> 7983519
+> 10604940
 > $
 
     A 'Latest' mailbox is never empty because it begins with a default value and
@@ -580,7 +576,7 @@ import Data.Monoid
 > onLines' = do
 >     (input, output) <- lift $ spawn Single
 >     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     fromOutput output ()
+>     fromOutput output
 > 
 > main = run $ for (onLines' >-> P.takeWhile (/= "quit")) (lift . putStrLn)
 
@@ -610,6 +606,8 @@ import Data.Monoid
     The following example shows how @pipes-concurrency@ will do the right thing
     even in the case of cycles:
 
+> -- cycle.hs
+>
 > import Control.Concurrent.Async
 > import Pipes
 > import Pipes.Concurrent
@@ -622,7 +620,7 @@ import Data.Monoid
 >         run $ (each [1,2] >> fromOutput out1) >-> toInput in2
 >         performGC
 >     a2 <- async $ do
->         run $ for (fromOutput out2) debug >-> P.take 6 >-> toInput in1
+>         run $ for (fromOutput out2) P.debug >-> P.take 6 >-> toInput in1
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -726,11 +724,6 @@ import Data.Monoid
 >user :: Producer String IO ()
 >user = P.stdin >-> P.takeWhile (/= "quit")
 >
->debug :: (Show a) => a -> Producer a IO ()
->debug a = do
->    lift $ print a
->    yield a
->
 >main = do
 >--  (input, output) <- spawn Unbounded
 >--  (input, output) <- spawn Single
@@ -741,62 +734,57 @@ import Data.Monoid
 >          async $ do run $ fromOutput output  >-> P.take 2 >-> worker i
 >                     performGC
 >
->--  a  <- async $ do run $ each [1..10]           >-> toInput input
->--  a  <- async $ do run $ user                   >-> toInput input
->    a  <- async $ do run $ for (each [1..]) debug >-> toInput input
+>--  a  <- async $ do run $ each [1..10]             >-> toInput input
+>--  a  <- async $ do run $ user                     >-> toInput input
+>    a  <- async $ do run $ for (each [1..]) P.debug >-> toInput input
 >                     performGC
 >
 >    mapM_ wait (a:as)
 
-@
-\-\- peek.hs
+>-- peek.hs
+>
+>import Control.Concurrent (threadDelay)
+>import Control.Concurrent.Async
+>import Control.Monad
+>import Pipes
+>import Pipes.Concurrent
+>import qualified Pipes.Prelude as P
+>
+>inputDevice :: (Monad m) => Producer Integer m ()
+>inputDevice = each [1..]
+>
+>outputDevice :: Consumer Integer IO r
+>outputDevice = forever $ do
+>    n <- await
+>    lift $ do
+>        print n
+>        threadDelay 1000000
+>
+>main = do
+>    (input, output) <- spawn (Latest 0)
+>    a1 <- async $ do run $ inputDevice >-> toInput input
+>                     performGC
+>    a2 <- async $ do run $ fromOutput output >-> P.take 5 >-> outputDevice
+>                     performGC
+>    mapM_ wait [a1, a2]
 
-import Control.Concurrent
-import Control.Concurrent.Async
-import Pipes
-import Pipes.Concurrent
-import qualified Pipes.Prelude as P
-
-\-\- Fast input updates
-inputDevice :: (Monad m) => () -> Producer Integer m ()
-inputDevice = P.fromList [1..]
-
-\-\- Slow output updates
-outputDevice :: () -> Consumer Integer IO r
-outputDevice () = forever $ do
-    n <- await ()
-    lift $ do
-        print n
-        threadDelay 1000000
-
-main = do
-    (input, output) <- spawn (Latest 0)
-    a1 <- async $ do
-        run $ (inputDevice >-> toInput input) ()
-        performGC
-    a2 <- async $ do
-        run $ (fromOutput output >-> P.take 5 >-> outputDevice) ()
-        performGC
-    mapM_ wait [a1, a2]
-
-\-\- callback.hs
-
-import Control.Monad
-import Pipes
-import Pipes.Concurrent
-import qualified Pipes.Prelude as P
-
-onLines :: (String -> IO a) -> IO b
-onLines callback = forever $ do
-    str <- getLine
-    callback str
-
-onLines :: () -> Producer String IO ()
-onLines () = do
-    (input, output) <- lift $ spawn Single
-    lift $ forkIO $ onLines (\str -> atomically $ send input str)
-    fromOutput output ()
-
-main = run $ (onLines >-> P.takeWhile (/= \"quit\") >-> P.stdout) ()
-@
+>-- callback.hs
+>
+>import Control.Monad
+>import Pipes
+>import Pipes.Concurrent
+>import qualified Pipes.Prelude as P
+>
+>onLines :: (String -> IO a) -> IO b
+>onLines callback = forever $ do
+>    str <- getLine
+>    callback str
+>
+>onLines' :: Producer String IO ()
+>onLines' = do
+>    (input, output) <- lift $ spawn Single
+>    lift $ forkIO $ onLines (\str -> atomically $ send input str)
+>    fromOutput output
+>
+>main = run $ for (onLines' >-> P.takeWhile (/= "quit")) (lift . putStrLn)
 -}
