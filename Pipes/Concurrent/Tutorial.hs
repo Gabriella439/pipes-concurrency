@@ -94,7 +94,7 @@ import Data.Monoid
     single stream by 'spawn'ing a first-in-first-out (FIFO) mailbox:
 
 @
- 'spawn' :: 'Buffer' a -> IO ('Input' a, 'Output' a)
+ 'spawn' :: 'Buffer' a -> 'IO' ('Input' a, 'Output' a)
 @
 
     'spawn' takes a 'Buffer' as an argument which specifies how many messages to
@@ -121,7 +121,7 @@ import Data.Monoid
     to the mailbox's 'Input' end:
 
 @
- 'toInput' :: 'Input' a -> 'Consumer' a IO ()
+ 'toInput' :: 'Input' a -> 'Consumer' a 'IO' ()
 @
 
     We can concurrently forward multiple streams to the same 'Input', which
@@ -139,7 +139,7 @@ import Data.Monoid
     values from the mailbox's 'Output' end using a 'Producer':
 
 @
- 'fromOutput' :: 'Output' a -> 'Producer' a IO ()
+ 'fromOutput' :: 'Output' a -> 'Producer' a 'IO' ()
 @
 
     For this example we'll build a 'Consumer' to handle this stream of @Event@s,
@@ -288,7 +288,7 @@ import Data.Monoid
     garbage collected:
 
 @
- 'recv' :: 'Output' a -> STM (Maybe a)
+ 'recv' :: 'Output' a -> 'STM' ('Maybe' a)
 @
 
     Otherwise, 'recv' blocks if the mailbox is empty since it assumes that if
@@ -329,7 +329,7 @@ import Data.Monoid
     is garbage collected:
 
 @
- 'send' :: 'Input' a -> a -> STM Bool
+ 'send' :: 'Input' a -> a -> 'STM' 'Bool'
 @
 
     Otherwise, 'send' blocks if the mailbox is full, since it assumes that if
