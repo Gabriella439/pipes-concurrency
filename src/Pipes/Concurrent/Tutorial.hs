@@ -364,7 +364,7 @@ import Data.Monoid
 >     as <- forM [1..3] $ \i ->
 >           async $ do run $ fromOutput output >-> P.take 2 >-> worker i
 >                      performGC
->     a  <- async $ do run $ for (each [1..]) P.debug >-> toInput input
+>     a  <- async $ do run $ each [1..] >-> P.chain print >-> toInput input
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -620,7 +620,7 @@ import Data.Monoid
 >         run $ (each [1,2] >> fromOutput out1) >-> toInput in2
 >         performGC
 >     a2 <- async $ do
->         run $ for (fromOutput out2) P.debug >-> P.take 6 >-> toInput in1
+>         run $ fromOutput out2 >-> P.chain print >-> P.take 6 >-> toInput in1
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -734,9 +734,9 @@ import Data.Monoid
 >          async $ do run $ fromOutput output  >-> P.take 2 >-> worker i
 >                     performGC
 >
->--  a  <- async $ do run $ each [1..10]             >-> toInput input
->--  a  <- async $ do run $ user                     >-> toInput input
->    a  <- async $ do run $ for (each [1..]) P.debug >-> toInput input
+>--  a  <- async $ do run $ each [1..10]                 >-> toInput input
+>--  a  <- async $ do run $ user                         >-> toInput input
+>    a  <- async $ do run $ each [1..] >-> P.chain print >-> toInput input
 >                     performGC
 >
 >    mapM_ wait (a:as)
