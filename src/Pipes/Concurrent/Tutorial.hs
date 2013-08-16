@@ -578,7 +578,7 @@ import Data.Monoid
 >     lift $ forkIO $ onLines (\str -> atomically $ send input str)
 >     fromOutput output
 > 
-> main = run $ for (onLines' >-> P.takeWhile (/= "quit")) (lift . putStrLn)
+> main = run $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 
     Now we can stream from the callback as if it were an ordinary 'Producer':
 
@@ -786,5 +786,5 @@ import Data.Monoid
 >    lift $ forkIO $ onLines (\str -> atomically $ send input str)
 >    fromOutput output
 >
->main = run $ for (onLines' >-> P.takeWhile (/= "quit")) (lift . putStrLn)
+>main = run $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 -}
