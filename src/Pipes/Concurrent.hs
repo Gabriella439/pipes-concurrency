@@ -1,4 +1,4 @@
--- | Asynchronous communication between proxies
+-- | Asynchronous communication between pipes
 
 {-# LANGUAGE CPP, RankNTypes#-}
 

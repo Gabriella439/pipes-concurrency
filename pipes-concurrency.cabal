@@ -22,7 +22,7 @@ Description: This library provides light-weight concurrency primitives for
   .
   Import "Pipes.Concurrent" to use the library.
   .
-  Read "Pipes.Concurrent.Tutorial" for an tutorial.
+  Read "Pipes.Concurrent.Tutorial" for a tutorial.
 Category: Control, Pipes, Concurrency
 Source-Repository head
     Type: git
