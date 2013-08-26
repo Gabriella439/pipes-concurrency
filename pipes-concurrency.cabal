@@ -44,7 +44,8 @@ Test-Suite tests
     Main-Is: tests-main.hs
     HS-Source-Dirs: tests .
     Build-Depends:
-        base         >= 4       && < 5  ,
-        pipes        >= 3.0     && < 3.4,
-        stm          >= 2.4     && < 2.5,
-        async        >= 2.0     && < 2.1
+        base              >= 4     && < 5  ,
+        pipes             >= 4.0.0 && < 4.1,
+        pipes-concurrency >= 2.0.0 && < 4.1,
+        stm               >= 2.4   && < 2.5,
+        async             >= 2.0   && < 2.1
