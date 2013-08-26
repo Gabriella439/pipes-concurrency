@@ -1,6 +1,6 @@
 -- | Asynchronous communication between proxies
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, RankNTypes#-}
 
 #if __GLASGOW_HASKELL__ >= 702
 {-# LANGUAGE Trustworthy #-}
@@ -25,7 +25,7 @@
     to combine them into larger transactions.
 -}
 
-module Control.Proxy.Concurrent (
+module Pipes.Concurrent (
     -- * Spawn mailboxes
     spawn,
     Buffer(..),
@@ -36,9 +36,9 @@ module Control.Proxy.Concurrent (
     send,
     recv,
 
-    -- * Proxy utilities
-    sendD,
-    recvS,
+    -- * Pipe utilities
+    toInput,
+    fromOutput,
 
     -- * Re-exports
     -- $reexport
@@ -52,10 +52,13 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
-import qualified Control.Proxy as P
+import Control.Monad (when)
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
+import Pipes (lift, yield, await)
+import Pipes.Core (Producer', Consumer')
+import qualified Pipes.Core as P
 import System.Mem (performGC)
 
 {-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
@@ -180,43 +183,35 @@ instance Alternative Output where
     empty   = Output empty
     x <|> y = Output (recv x <|> recv y)
 
-{-| Writes all messages flowing \'@D@\'ownstream to the given 'Input'
+{-| Convert an 'Input' to a 'Pipes.Consumer'
 
-    'sendD' terminates when the corresponding 'Output' is garbage collected.
-
-> sendD :: (Proxy p) => Input a -> () -> Pipe p a a IO ()
+    'toInput' terminates when the corresponding 'Output' is garbage collected.
 -}
-sendD :: (P.Proxy p) => Input a -> x -> p x a x a IO ()
-sendD input = P.runIdentityK loop
+toInput :: Input a -> Consumer' a IO ()
+toInput input = loop
   where
-    loop x = do
-        a <- P.request x
-        alive <- P.lift $ S.atomically $ send input a
-        if alive
-            then do
-                x2 <- P.respond a
-                loop x2
-            else return ()
-{-# INLINABLE sendD #-}
+    loop = do
+        a     <- await
+        alive <- lift $ S.atomically $ send input a
+        when alive loop
+{-# INLINABLE toInput #-}
 
-{-| Convert an 'Output' to a 'P.Producer'
+{-| Convert an 'Output' to a 'Pipes.Producer'
 
-    'recvS' terminates when the 'Buffer' is empty and the corresponding 'Input'
-    is garbage collected.
-
-> recvS :: (Proxy p) => Output a -> () -> Producer p a IO ()
+    'fromOutput' terminates when the 'Buffer' is empty and the corresponding
+    'Input' is garbage collected.
 -}
-recvS :: (P.Proxy p) => Output a -> r -> p x' x y' a IO r
-recvS output r = P.runIdentityP go
+fromOutput :: Output a -> Producer' a IO ()
+fromOutput output = loop
   where
-    go = do
-        ma <- P.lift $ S.atomically $ recv output
+    loop = do
+        ma <- lift $ S.atomically $ recv output
         case ma of
-            Nothing -> return r
+            Nothing -> return ()
             Just a  -> do
-                P.respond a
-                go
-{-# INLINABLE recvS #-}
+                yield a
+                loop
+{-# INLINABLE fromOutput #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the

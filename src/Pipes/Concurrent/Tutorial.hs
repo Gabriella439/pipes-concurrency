@@ -1,13 +1,13 @@
 {-| This module provides a tutorial for the @pipes-concurrency@ library.
 
     This tutorial assumes that you have read the @pipes@ tutorial in
-    @Control.Proxy.Tutorial@.
+    @Pipes.Tutorial@.
 
     I've condensed all the code examples into self-contained code listings in
     the Appendix section that you can use to follow along.
 -}
 
-module Control.Proxy.Concurrent.Tutorial (
+module Pipes.Concurrent.Tutorial (
     -- * Introduction
     -- $intro
 
@@ -39,8 +39,11 @@ module Control.Proxy.Concurrent.Tutorial (
     -- $appendix
     ) where
 
-import Control.Proxy
-import Control.Proxy.Concurrent
+import Control.Concurrent
+import Control.Monad
+import Pipes
+import Pipes.Concurrent
+import qualified Pipes.Prelude as P
 import Data.Monoid
 
 {- $intro
@@ -58,61 +61,48 @@ import Data.Monoid
 
     * implement basic functional reactive programming (FRP).
 
-    For example, let's say that we design a simple game with a single unit's
-    health as the global state.  We'll define an event handler that modifies the
-    unit's health in response to events:
+    For example, let's say that we want to design a simple game with two
+    concurrent sources of game @Event@s.
 
-> import Control.Monad
-> import Control.Proxy
-> import Control.Proxy.Trans.Maybe
-> import Control.Proxy.Trans.State
-> 
+    One source translates user input to game events:
+
 > -- The game events
-> data Event = Harm Integer | Heal Integer | Quit
-> 
-> -- The game state
-> type Health = Integer
-> 
-> handler :: (Proxy p) => () -> Consumer (StateP Health (MaybeP p)) Event IO r
-> handler () = forever $ do
->     event <- request ()
->     case event of
->         Harm n -> modify (subtract n)
->         Heal n -> modify (+        n)
->         Quit   -> mzero
->     health <- get
->     lift $ putStrLn $ "Health = " ++ show health
-
-    However, we have two concurrent event sources that we wish to hook up to our
-    event handler.  One translates user input to game events:
-
-> user :: (Proxy p) => () -> Producer p Event IO r
-> user () = runIdentityP $ forever $ do
->     command <- lift getLine
+> data Event = Harm Integer | Heal Integer | Quit deriving (Show)
+>
+> user :: IO Event
+> user = do
+>     command <- getLine
 >     case command of
->         "potion" -> respond (Heal 10)
->         "quit"   -> respond  Quit
->         _        -> lift $ putStrLn "Invalid command"
+>         "potion" -> return (Heal 10)
+>         "quit"   -> return  Quit
+>         _        -> do
+>             putStrLn "Invalid command"
+>             user  -- Try again
 
     ... while the other creates inclement weather:
 
-> import Control.Concurrent
+> import Control.Concurrent (threadDelay)
+> import Control.Monad (forever)
+> import Pipes
 >
-> acidRain :: (Proxy p) => () -> Producer p Event IO r
-> acidRain () = runIdentityP $ forever $ do
->     respond (Harm 1)
->     lift $ threadDelay 2000000
+> acidRain :: Producer Event IO r
+> acidRain = forever $ do
+>     lift $ threadDelay 2000000  -- Wait 2 seconds
+>     yield (Harm 1)
 
-    To merge these sources, we 'spawn' a new FIFO mailbox which we will use to
-    merge the two streams of asynchronous events:
+    We can asynchronously merge these two separate sources of @Event@s into a
+    single stream by 'spawn'ing a first-in-first-out (FIFO) mailbox:
 
-> spawn :: Buffer a -> IO (Input a, Output a)
+@
+ 'spawn' :: 'Buffer' a -> 'IO' ('Input' a, 'Output' a)
+@
 
-    'spawn' takes a mailbox 'Buffer' as an argument, and we will specify that we
-    want our mailbox to store an 'Unbounded' number of messages:
+    'spawn' takes a 'Buffer' as an argument which specifies how many messages to
+    store.  In this case we want our mailbox to store an 'Unbounded' number of
+    messages:
 
-> import Control.Proxy.Concurrent
->
+> import Pipes.Concurrent
+> 
 > main = do
 >     (input, output) <- spawn Unbounded
 >     ...
@@ -127,45 +117,69 @@ import Data.Monoid
     We will be streaming @Event@s through our mailbox, so our @input@ has type
     @(Input Event)@ and our @output@ has type @(Output Event)@.
 
-    To stream @Event@s into the mailbox , we use 'sendD', which writes values to
-    the mailbox's 'Input' end:
+    To stream @Event@s into the mailbox , we use 'toInput', which writes values
+    to the mailbox's 'Input' end:
 
-> sendD :: (Proxy p) => Input a -> () -> Pipe p a a IO ()
+@
+ 'toInput' :: 'Input' a -> 'Consumer' a 'IO' ()
+@
 
     We can concurrently forward multiple streams to the same 'Input', which
     asynchronously merges their messages into the same mailbox:
 
 >     ...
->     forkIO $ do runProxy $ acidRain >-> sendD input
+>     forkIO $ do run $ lift user >~  toInput input
 >                 performGC  -- I'll explain 'performGC' below
->     forkIO $ do runProxy $ user     >-> sendD input
+> 
+>     forkIO $ do run $ acidRain  >-> toInput input
 >                 performGC
 >     ...
 
-    To stream @Event@s out of the mailbox, we use 'recvS', which reads values
-    from the mailbox's 'Output' end:
+    To stream @Event@s out of the mailbox, we use 'fromOutput', which streams
+    values from the mailbox's 'Output' end using a 'Producer':
 
-> recvS :: (Proxy p) => Output a -> () -> Producer p a IO ()
+@
+ 'fromOutput' :: 'Output' a -> 'Producer' a 'IO' ()
+@
 
-    We will forward our merged stream to our @handler@ so that it can listen to
-    both @Event@ sources:
+    For this example we'll build a 'Consumer' to handle this stream of @Event@s,
+    that either harms or heals our intrepid adventurer depending on which
+    @Event@ we receive:
+
+> handler :: Consumer Event IO ()
+> handler = loop 100
+>   where
+>     loop health = do
+>         lift $ putStrLn $ "Health = " ++ show health
+>         event <- await
+>         case event of
+>             Harm n -> loop (health - n)
+>             Heal n -> loop (health + n)
+>             Quit   -> return ()
+
+    Now we can just connect our @Event@ 'Producer' to our @Event@ 'Consumer'
+    using ('>->'):
 
 >     ...
->     runProxy $ runMaybeK $ evalStateK 100 $ recvS output >-> handler
+>     run $ fromOutput output >-> handler
 
-    Our final @main@ becomes:
+    Our final @main@ looks like this:
 
 > main = do
 >     (input, output) <- spawn Unbounded
->     forkIO $ do runProxy $ acidRain >-> sendD input
+>
+>     forkIO $ do run $ lift user >~  toInput input
+>                 performGC  
+>
+>     forkIO $ do run $ acidRain  >-> toInput input
 >                 performGC
->     forkIO $ do runProxy $ user     >-> sendD input
->                 performGC
->     runProxy $ runMaybeK $ evalStateK 100 $ recvS output >-> handler
+>
+>     run $ fromOutput output >-> handler
 
     ... and when we run it we get the desired concurrent behavior:
 
 > $ ./game
+> Health = 100
 > Health = 99
 > Health = 98
 > potion<Enter>
@@ -186,13 +200,13 @@ import Data.Monoid
     For example, we'll define a \"worker\" that takes a one-second break each
     time it receives a new job:
 
-> import Control.Concurrent
+> import Control.Concurrent (threadDelay)
 > import Control.Monad
-> import Control.Proxy
+> import Pipes
 > 
-> worker :: (Proxy p, Show a) => Int -> () -> Consumer p a IO r
-> worker i () = runIdentityP $ forever $ do
->     a <- request ()
+> worker :: (Show a) => Int -> Consumer a IO r
+> worker i = forever $ do
+>     a <- await
 >     lift $ threadDelay 1000000  -- 1 second
 >     lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
 
@@ -200,14 +214,15 @@ import Data.Monoid
     the same job:
 
 > import Control.Concurrent.Async
-> import Control.Proxy.Concurrent
+> import qualified Pipes.Prelude as P
+> import Pipes.Concurrent
 > 
 > main = do
 >     (input, output) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> worker i
+>           async $ do run $ fromOutput output  >-> worker i
 >                      performGC
->     a  <- async $ do runProxy $ fromListS [1..10] >-> sendD input
+>     a  <- async $ do run $ each [1..10] >-> toInput input
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -227,18 +242,18 @@ import Data.Monoid
 > Worker #2: Processed 10
 > $
 
-    What if we replace 'fromListS' with a different source that reads lines from
-    user input until the user types \"quit\":
+    What if we replace 'each' with a different source that reads lines from user
+    input until the user types \"quit\":
 
-> user :: (Proxy p) => () -> Producer p String IO ()
-> user = stdinS >-> takeWhileD (/= "quit")
+> user :: Producer String IO ()
+> user = P.stdin >-> P.takeWhile (/= "quit")
 > 
 > main = do
 >     (input, output) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> worker i
+>           async $ do run $ fromOutput output >-> worker i
 >                      performGC
->     a  <- async $ do runProxy $ user >-> sendD input
+>     a  <- async $ do run $ user >-> toInput input
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -267,12 +282,14 @@ import Data.Monoid
     all, anything that has a reference to 'Input' could potentially add more
     data to the mailbox.
 
-    It turns out that 'recvS' is smart and only terminates when the upstream
-    'Input' is garbage collected.  'recvS' builds on top of the more primitive
-    'recv' command, which returns a 'Nothing' when the 'Input' is garbage
-    collected:
+    It turns out that 'fromOutput' is smart and only terminates when the
+    upstream 'Input' is garbage collected.  'fromOutput' builds on top of the
+    more primitive 'recv' command, which returns a 'Nothing' when the 'Input' is
+    garbage collected:
 
-> recv :: Output a -> STM (Maybe a)
+@
+ 'recv' :: 'Output' a -> 'STM' ('Maybe' a)
+@
 
     Otherwise, 'recv' blocks if the mailbox is empty since it assumes that if
     the 'Input' has not been garbage collected then somebody might still produce
@@ -284,7 +301,7 @@ import Data.Monoid
 >     ...
 >     as <- forM [1..3] $ \i ->
 >           -- Each worker refuses to process more than two values
->           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
+>           async $ do run $ fromOutput output >-> P.take 2 >-> worker i
 >                      performGC
 >     ...
 
@@ -306,12 +323,14 @@ import Data.Monoid
 > walk<Enter>
 > $
 
-    'sendD' similarly shuts down when the 'Output' is garbage collected,
-    preventing the user from submitting new values.  'sendD' builds on top of
+    'toInput' similarly shuts down when the 'Output' is garbage collected,
+    preventing the user from submitting new values.  'toInput' builds on top of
     the more primitive 'send' command, which returns a 'False' when the 'Output'
     is garbage collected:
 
-> send :: Input a -> a -> STM Bool
+@
+ 'send' :: 'Input' a -> a -> 'STM' 'Bool'
+@
 
     Otherwise, 'send' blocks if the mailbox is full, since it assumes that if
     the 'Output' has not been garbage collected then somebody could still
@@ -320,9 +339,14 @@ import Data.Monoid
     This is why we have to insert 'performGC' calls whenever we release a
     reference to either the 'Input' or 'Output'.  Without these calls we cannot
     guarantee that the garbage collector will trigger and notify the opposing
-    end if the last reference was released.  If you forget to insert a
-    'performGC' call then termination will delay until the next garbage
-    collection cycle.
+    end if the last reference was released.
+
+    You can also opt to not use 'performGC' at all.  This is preferable for
+    long-running programs and it is completely safe.  When you omit the
+    'performGC' call you simply delay garbage collecting mailboxes until the
+    next garbage collection cycle.  However, this tutorial will continue to use
+    `performGC` since all the examples are short-lived programs that need to
+    terminate promptly.
 -}
 
 {- $mailbox
@@ -333,14 +357,14 @@ import Data.Monoid
     If we set the mailbox 'Buffer' to 'Single', then the mailbox holds exactly
     one message, forcing synchronization between 'send's and 'recv's.  Let's
     observe this by sending an infinite stream of values, logging all values to
-    'stdout':
+    the console:
 
 > main = do
 >     (input, output) <- spawn Single
 >     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
+>           async $ do run $ fromOutput output >-> P.take 2 >-> worker i
 >                      performGC
->     a  <- async $ do runProxy $ enumFromS 1 >-> printD >-> sendD input
+>     a  <- async $ do run $ each [1..] >-> P.chain print >-> toInput input
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -424,25 +448,28 @@ import Data.Monoid
     data.  Just use the 'Monoid' instance for 'Input' to combine multiple
     'Input' ends together into a single broadcast 'Input':
 
+> -- broadcast.hs
+>
 > import Control.Monad
 > import Control.Concurrent.Async
-> import Control.Proxy
-> import Control.Proxy.Concurrent
+> import Pipes
+> import Pipes.Concurrent
+> import qualified Pipes.Prelude as P
 > import Data.Monoid
 > 
 > main = do
 >     (input1, output1) <- spawn Unbounded
 >     (input2, output2) <- spawn Unbounded
 >     a1 <- async $ do
->         runProxy $ stdinS >-> sendD (input1 <> input2)
+>         run $ P.stdin >-> toInput (input1 <> input2)
 >         performGC
 >     as <- forM [output1, output2] $ \output -> async $ do
->         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
+>         run $ fromOutput output >-> P.take 2 >-> P.stdout
 >         performGC
 >     mapM_ wait (a1:as)
 
-    In the above example, 'stdinS' will broadcast user input to both mailboxes,
-    and each mailbox forwards its values to 'stdoutD', echoing the message to
+    In the above example, 'P.stdin' will broadcast user input to both mailboxes,
+    and each mailbox forwards its values to 'P.stdout', echoing the message to
     standard output:
 
 > $ ./broadcast
@@ -456,9 +483,9 @@ import Data.Monoid
 > $ 
 
     The combined 'Input' stays alive as long as any of the original 'Input's
-    remains alive.  In the above example, 'sendD' terminates on the third 'send'
-    attempt because it detects that both listeners died after receiving two
-    messages.
+    remains alive.  In the above example, 'toInput' terminates on the third
+    'send' attempt because it detects that both listeners died after receiving
+    two messages.
 
     Use 'mconcat' to broadcast to a list of 'Input's, but keep in mind that you
     will incur a performance price if you combine thousands of 'Input's or more
@@ -472,17 +499,19 @@ import Data.Monoid
     might have an input and output device (like a mouse and a monitor) where the
     input device updates at a different pace than the output device
 
-> import Control.Concurrent
-> import Control.Proxy
+> import Control.Concurrent (threadDelay)
+> import Control.Monad
+> import Pipes
+> import qualified Pipes.Prelude as P
 > 
 > -- Fast input updates
-> inputDevice :: (Monad m, Proxy p) => () -> Producer p Integer m r
-> inputDevice = enumFromS 1
+> inputDevice :: (Monad m) => Producer Integer m ()
+> inputDevice = each [1..]
 > 
 > -- Slow output updates
-> outputDevice :: (Proxy p) => () -> Consumer p Integer IO r
-> outputDevice () = runIdentityP $ forever $ do
->     n <- request ()
+> outputDevice :: Consumer Integer IO r
+> outputDevice = forever $ do
+>     n <- await
 >     lift $ do
 >         print n
 >         threadDelay 1000000
@@ -493,16 +522,14 @@ import Data.Monoid
     the output device to consult the 'Latest' value received from the 'Input':
 
 > import Control.Concurrent.Async
-> import Control.Proxy.Concurrent
->
+> import Pipes.Concurrent
+> 
 > main = do
 >     (input, output) <- spawn (Latest 0)
->     a1 <- async $ do
->         runProxy $ inputDevice >-> sendD input
->         performGC
->     a2 <- async $ do
->         runProxy $ recvS output >-> takeB_ 5 >-> outputDevice
->         performGC
+>     a1 <- async $ do run $ inputDevice >-> toInput input
+>                      performGC
+>     a2 <- async $ do run $ fromOutput output >-> P.take 5 >-> outputDevice
+>                      performGC
 >     mapM_ wait [a1, a2]
 
     'Latest' selects a mailbox that always stores exactly one value.  The
@@ -512,11 +539,11 @@ import Data.Monoid
     consuming it.  In the above example the @outputDevice@ periodically peeks at    the latest value stashed inside the mailbox:
 
 > $ ./peek
-> 5
-> 752452
-> 1502636
-> 2248278
-> 2997705
+> 7
+> 2626943
+> 5303844
+> 7983519
+> 10604940
 > $
 
     A 'Latest' mailbox is never empty because it begins with a default value and
@@ -539,18 +566,19 @@ import Data.Monoid
 >     callback str
 
     We can use 'send' to free the data from the callback and then we can
-    retrieve the data on the outside using 'recvS':
+    retrieve the data on the outside using 'fromOutput':
 
-> import Control.Proxy
-> import Control.Proxy.Concurrent
+> import Pipes
+> import Pipes.Concurrent
+> import qualified Pipes.Prelude as P
 > 
-> onLines' :: (Proxy p) => () -> Producer p String IO ()
-> onLines' () = runIdentityP $ do
+> onLines' :: Producer String IO ()
+> onLines' = do
 >     (input, output) <- lift $ spawn Single
 >     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     recvS output ()
+>     fromOutput output
 > 
-> main = runProxy $ onLines' >-> takeWhileD (/= "quit") >-> stdoutD
+> main = run $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 
     Now we can stream from the callback as if it were an ordinary 'Producer':
 
@@ -578,17 +606,22 @@ import Data.Monoid
     The following example shows how @pipes-concurrency@ will do the right thing
     even in the case of cycles:
 
+> -- cycle.hs
+>
 > import Control.Concurrent.Async
-> import Control.Proxy
-> import Control.Proxy.Concurrent
+> import Pipes
+> import Pipes.Concurrent
+> import qualified Pipes.Prelude as P
 > 
 > main = do
 >     (in1, out1) <- spawn Unbounded
 >     (in2, out2) <- spawn Unbounded
->     a1 <- async $ do runProxy $ (fromListS [1,2] >=> recvS out1) >-> sendD in2
->                      performGC
->     a2 <- async $ do runProxy $ recvS out2 >-> printD >-> takeB_ 6 >-> sendD in1
->                      performGC
+>     a1 <- async $ do
+>         run $ (each [1,2] >> fromOutput out1) >-> toInput in2
+>         performGC
+>     a2 <- async $ do
+>         run $ fromOutput out2 >-> P.chain print >-> P.take 6 >-> toInput in1
+>         performGC
 >     mapM_ wait [a1, a2]
 
     The above program jump-starts a cyclic chain with two input values and
@@ -627,146 +660,131 @@ import Data.Monoid
     I've provided the full code for the above examples here so you can easily
     try them out:
 
-> -- game.hs
+>-- game.hs
 >
-> import Control.Concurrent
-> import Control.Monad
-> import Control.Proxy
-> import Control.Proxy.Concurrent
-> import Control.Proxy.Trans.Maybe
-> import Control.Proxy.Trans.State
-> 
-> -- The game events
-> data Event = Harm Integer | Heal Integer | Quit
-> 
-> -- The game state
-> type Health = Integer
-> 
-> handler :: (Proxy p) => () -> Consumer (StateP Health (MaybeP p)) Event IO r
-> handler () = forever $ do
->     event <- request ()
->     case event of
->         Harm n -> modify (subtract n)
->         Heal n -> modify (+        n)
->         Quit   -> mzero
->     health <- get
->     lift $ putStrLn $ "Health = " ++ show health
+>import Control.Concurrent (threadDelay)
+>import Control.Monad (forever)
+>import Pipes
+>import Pipes.Concurrent
 >
-> user :: (Proxy p) => () -> Producer p Event IO r
-> user () = runIdentityP $ forever $ do
->     command <- lift getLine
->     case command of
->         "potion" -> respond (Heal 10)
->         "quit"   -> respond  Quit
->         _        -> lift $ putStrLn "Invalid command"
+>data Event = Harm Integer | Heal Integer | Quit deriving (Show)
 >
-> acidRain :: (Proxy p) => () -> Producer p Event IO r
-> acidRain () = runIdentityP $ forever $ do
->     respond (Harm 1)
->     lift $ threadDelay 2000000
+>user :: IO Event
+>user = do
+>    command <- getLine
+>    case command of
+>        "potion" -> return (Heal 10)
+>        "quit"   -> return  Quit
+>        _        -> do
+>            putStrLn "Invalid command"
+>            user
 >
-> main = do
->     (input, output) <- spawn Unbounded
->     forkIO $ do runProxy $ acidRain >-> sendD input
->                 performGC  -- I'll explain 'performGC' below
->     forkIO $ do runProxy $ user     >-> sendD input
->                 performGC
->     runProxy $ runMaybeK $ evalStateK 100 $ recvS output >-> handler
+>acidRain :: Producer Event IO r
+>acidRain = forever $ do
+>    lift $ threadDelay 2000000  -- Wait 2 seconds
+>    yield (Harm 1)
+>
+>handler :: Consumer Event IO ()
+>handler = loop 100
+>  where
+>    loop health = do
+>        lift $ putStrLn $ "Health = " ++ show health
+>        event <- await
+>        case event of
+>            Harm n -> loop (health - n)
+>            Heal n -> loop (health + n)
+>            Quit   -> return ()
+>
+>main = do
+>    (input, output) <- spawn Unbounded
+>
+>    forkIO $ do run $ lift user >~  toInput input
+>                performGC
+>
+>    forkIO $ do run $ acidRain  >-> toInput input
+>                performGC
+>
+>    run $ fromOutput output >-> handler
 
-> -- work.hs
-> 
-> import Control.Concurrent
-> import Control.Monad
-> import Control.Proxy
-> import Control.Concurrent.Async
-> import Control.Proxy.Concurrent
-> 
-> worker :: (Proxy p, Show a) => Int -> () -> Consumer p a IO r
-> worker i () = runIdentityP $ forever $ do
->     a <- request ()
->     lift $ threadDelay 1000000  -- 1 second
->     lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
-> {-
-> worker :: (Proxy p, Show a) => Int -> () -> Consumer p a IO ()
-> worker i () = runIdentityP $ replicateM_ 2 $ do
->     a <- request ()
->     lift $ threadDelay 1000000
->     lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
-> -}
+>-- work.hs
 >
-> user :: (Proxy p) => () -> Producer p String IO ()
-> user = stdinS >-> takeWhileD (/= "quit")
-> 
-> main = do
->     (input, output) <- spawn Unbounded
-> --  (input, output) <- spawn Single
-> --  (input, output) <- spawn (Bounded 100)
->     as <- forM [1..3] $ \i ->
->           async $ do runProxy $ recvS output >-> worker i
-> --        async $ do runProxy $ recvS output >-> takeB_ 2 >-> worker i
->                      performGC
->     a  <- async $ do runProxy $ fromListS [1..10]      >-> sendD input
-> --  a  <- async $ do runProxy $ user                   >-> sendD input
-> --  a  <- async $ do runProxy $ enumFromS 1 >-> printD >-> sendD input
->                      performGC
->     mapM_ wait (a:as)
-
-> -- broadcast.hs
+>import Control.Concurrent (threadDelay)
+>import Control.Concurrent.Async
+>import Control.Monad
+>import Pipes
+>import Pipes.Concurrent
+>import qualified Pipes.Prelude as P
 >
-> import Control.Monad
-> import Control.Concurrent.Async
-> import Control.Proxy
-> import Control.Proxy.Concurrent
-> import Data.Monoid
-> 
-> main = do
->     (input1, output1) <- spawn Unbounded
->     (input2, output2) <- spawn Unbounded
->     a1 <- async $ do
->         runProxy $ stdinS >-> sendD (input1 <> input2)
->         performGC
->     as <- forM [output1, output2] $ \output -> async $ do
->         runProxy $ recvS output >-> takeB_ 2 >-> stdoutD
->         performGC
->     mapM_ wait (a1:as)
-
-> -- peek.hs
-> 
-> import Control.Concurrent
-> import Control.Concurrent.Async
-> import Control.Proxy
-> import Control.Proxy.Concurrent
-> 
-> inputDevice :: (Monad m, Proxy p) => () -> Producer p Integer m r
-> inputDevice = enumFromS 1
-> 
-> outputDevice :: (Proxy p) => () -> Consumer p Integer IO r
-> outputDevice () = runIdentityP $ forever $ do
->     n <- request ()
->     lift $ do
->         print n
->         threadDelay 1000000
+>worker :: (Show a) => Int -> Consumer a IO r
+>worker i = forever $ do
+>    a <- await
+>    lift $ threadDelay 1000000  -- 1 second
+>    lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
 >
-> main = do
->     (input, output) <- spawn (Latest 0)
->     a1 <- async $ do
->         runProxy $ inputDevice >-> sendD input
->         performGC
->     a2 <- async $ do
->         runProxy $ recvS output >-> takeB_ 5 >-> outputDevice
->         performGC
->     mapM_ wait [a1, a2]
+>user :: Producer String IO ()
+>user = P.stdin >-> P.takeWhile (/= "quit")
+>
+>main = do
+>--  (input, output) <- spawn Unbounded
+>--  (input, output) <- spawn Single
+>    (input, output) <- spawn (Bounded 100)
+>
+>    as <- forM [1..3] $ \i ->
+>--        async $ do run $ fromOutput output  >-> worker i
+>          async $ do run $ fromOutput output  >-> P.take 2 >-> worker i
+>                     performGC
+>
+>--  a  <- async $ do run $ each [1..10]                 >-> toInput input
+>--  a  <- async $ do run $ user                         >-> toInput input
+>    a  <- async $ do run $ each [1..] >-> P.chain print >-> toInput input
+>                     performGC
+>
+>    mapM_ wait (a:as)
 
-> -- callback.hs
-> 
-> import Control.Proxy
-> import Control.Proxy.Concurrent
-> 
-> onLines' :: (Proxy p) => () -> Producer p String IO ()
-> onLines' () = runIdentityP $ do
->     (input, output) <- lift $ spawn Single
->     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     recvS output ()
-> 
-> main = runProxy $ onLines' >-> takeWhileD (/= "quit) >-> stdoutD
+>-- peek.hs
+>
+>import Control.Concurrent (threadDelay)
+>import Control.Concurrent.Async
+>import Control.Monad
+>import Pipes
+>import Pipes.Concurrent
+>import qualified Pipes.Prelude as P
+>
+>inputDevice :: (Monad m) => Producer Integer m ()
+>inputDevice = each [1..]
+>
+>outputDevice :: Consumer Integer IO r
+>outputDevice = forever $ do
+>    n <- await
+>    lift $ do
+>        print n
+>        threadDelay 1000000
+>
+>main = do
+>    (input, output) <- spawn (Latest 0)
+>    a1 <- async $ do run $ inputDevice >-> toInput input
+>                     performGC
+>    a2 <- async $ do run $ fromOutput output >-> P.take 5 >-> outputDevice
+>                     performGC
+>    mapM_ wait [a1, a2]
+
+>-- callback.hs
+>
+>import Control.Monad
+>import Pipes
+>import Pipes.Concurrent
+>import qualified Pipes.Prelude as P
+>
+>onLines :: (String -> IO a) -> IO b
+>onLines callback = forever $ do
+>    str <- getLine
+>    callback str
+>
+>onLines' :: Producer String IO ()
+>onLines' = do
+>    (input, output) <- lift $ spawn Single
+>    lift $ forkIO $ onLines (\str -> atomically $ send input str)
+>    fromOutput output
+>
+>main = run $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 -}

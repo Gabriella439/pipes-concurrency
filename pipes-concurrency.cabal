@@ -1,6 +1,6 @@
 Name: pipes-concurrency
-Version: 1.2.0
-Cabal-Version: >=1.9.2
+Version: 2.0.0
+Cabal-Version: >=1.8.0.2
 Build-Type: Simple
 License: BSD3
 License-File: LICENSE
@@ -20,22 +20,23 @@ Description: This library provides light-weight concurrency primitives for
   .
   * /Dynamic Graphs/: Add or remove readers and writers at any time
   .
-  Import "Control.Proxy.Concurrent" to use the library.
+  Import "Pipes.Concurrent" to use the library.
   .
-  Read "Control.Proxy.Concurrent.Tutorial" for an tutorial.
-Category: Control, Pipes, Proxies, Concurrency
+  Read "Pipes.Concurrent.Tutorial" for an tutorial.
+Category: Control, Pipes, Concurrency
 Source-Repository head
     Type: git
     Location: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library
 
 Library
+    Hs-Source-Dirs: src
     Build-Depends:
-        base         >= 4       && < 5  ,
-        pipes        >= 3.0     && < 3.4,
-        stm          >= 2.4     && < 2.5
+        base         >= 4   && < 5  ,
+        pipes        >= 4.0 && < 4.1,
+        stm          >= 2.4 && < 2.5
     Exposed-Modules:
-        Control.Proxy.Concurrent,
-        Control.Proxy.Concurrent.Tutorial
+        Pipes.Concurrent,
+        Pipes.Concurrent.Tutorial
     GHC-Options: -O2
 
 Test-Suite tests
@@ -46,5 +47,4 @@ Test-Suite tests
         base         >= 4       && < 5  ,
         pipes        >= 3.0     && < 3.4,
         stm          >= 2.4     && < 2.5,
-        -- and additionally:
         async        >= 2.0     && < 2.1
