@@ -130,16 +130,6 @@ fromInput input = loop
 
 {-| Spawn a mailbox using the specified 'Buffer' to store messages
 
-    Using 'recv' on the 'Input':
-
-        * succeeds and returns a 'Just' if the mailbox is not empty, otherwise
-          it:
-
-        * retries if the 'Output' has not been garbage collected, or:
-
-        * fails if the 'Output' has been garbage collected and returns
-          'Nothing'.
-
     Using 'send' on the 'Output'
 
         * fails and returns 'False' if the 'Input' has been garbage collected
@@ -147,7 +137,17 @@ fromInput input = loop
 
         * retries if the mailbox is full, or:
 
-        * succeeds if the mailbox is not full and returns 'True'.
+        * adds a message to the mailbox and returns 'True'.
+
+    Using 'recv' on the 'Input':
+
+        * retrieves a message from the mailbox wrapped in 'Just' if the mailbox
+          is not empty, otherwise it:
+
+        * retries if the 'Output' has not been garbage collected, or:
+
+        * fails if the 'Output' has been garbage collected and returns
+          'Nothing'.
 -}
 spawn :: Buffer a -> IO (Output a, Input a)
 spawn buffer = do
