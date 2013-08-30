@@ -26,19 +26,17 @@
 -}
 
 module Pipes.Concurrent (
-    -- * Spawn mailboxes
-    spawn,
-    Buffer(..),
-    Input,
-    Output,
-
-    -- * Send and receive messages
-    send,
-    recv,
+    -- * Inputs and Outputs
+    Input(..),
+    Output(..),
 
     -- * Pipe utilities
-    toInput,
-    fromOutput,
+    fromInput,
+    toOutput,
+
+    -- * Actors
+    spawn,
+    Buffer(..),
 
     -- * Re-exports
     -- $reexport
@@ -59,10 +57,99 @@ import GHC.Conc.Sync (unsafeIOToSTM)
 import Pipes (lift, yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
-{-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
-    'Buffer' to store messages
+{-| An exhaustible source of values
+
+    'recv' returns 'Nothing' if the source is exhausted
 -}
-spawn :: Buffer a -> IO (Input a, Output a)
+newtype Input a = Input {
+    recv :: S.STM (Maybe a) }
+
+instance Functor Input where
+    fmap f m = Input (fmap (fmap f) (recv m))
+
+instance Applicative Input where
+    pure r    = Input (pure (pure r))
+    mf <*> mx = Input ((<*>) <$> recv mf <*> recv mx)
+
+instance Monad Input where
+    return r = Input (return (return r))
+    m >>= f  = Input $ do
+        ma <- recv m
+        case ma of
+            Nothing -> return Nothing
+            Just a  -> recv (f a)
+
+-- Deriving 'Alternative'
+instance Alternative Input where
+    empty   = Input empty
+    x <|> y = Input (recv x <|> recv y)
+
+instance Monoid (Input a) where
+    mempty = empty
+    mappend = (<|>)
+
+{-| An exhaustible sink of values
+
+    'send' returns 'False' if the sink is exhausted
+-}
+newtype Output a = Output {
+    send :: a -> S.STM Bool }
+
+instance Monoid (Output a) where
+    mempty  = Output (\_ -> return False)
+    mappend i1 i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+
+{-| Convert an 'Output' to a 'Pipes.Consumer'
+
+    'toOutput' terminates when the 'Output' is exhausted.
+-}
+toOutput :: Output a -> Consumer' a IO ()
+toOutput output = loop
+  where
+    loop = do
+        a     <- await
+        alive <- lift $ S.atomically $ send output a
+        when alive loop
+{-# INLINABLE toOutput #-}
+
+{-| Convert an 'Input' to a 'Pipes.Producer'
+
+    'fromInput' terminates when the 'Input' is exhausted.
+-}
+fromInput :: Input a -> Producer' a IO ()
+fromInput input = loop
+  where
+    loop = do
+        ma <- lift $ S.atomically $ recv input
+        case ma of
+            Nothing -> return ()
+            Just a  -> do
+                yield a
+                loop
+{-# INLINABLE fromInput #-}
+
+{-| Spawn a mailbox using the specified 'Buffer' to store messages
+
+    Using 'recv' on the 'Input':
+
+        * succeeds and returns a 'Just' if the mailbox is not empty, otherwise
+          it:
+
+        * retries if the 'Output' has not been garbage collected, or:
+
+        * fails if the 'Output' has been garbage collected and returns
+          'Nothing'.
+
+    Using 'send' on the 'Output'
+
+        * fails and returns 'False' if the 'Input' has been garbage collected
+          (even if the mailbox is not full), otherwise it:
+
+        * retries if the mailbox is full, or:
+
+        * succeeds if the mailbox is not full and returns 'True'.
+-}
+spawn :: Buffer a -> IO (Output a, Input a)
 spawn buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
@@ -78,14 +165,14 @@ spawn buffer = do
             t <- S.newTVarIO a
             return (S.readTVar t, S.writeTVar t)
 
-    {- Use an IORef to keep track of whether the 'Input' end has been garbage
+    {- Use an IORef to keep track of whether the 'Output' has been garbage
        collected and run a finalizer when the collection occurs
     -}
     rSend    <- newIORef ()
     doneSend <- S.newTVarIO False
     mkWeakIORef rSend (S.atomically $ S.writeTVar doneSend True)
 
-    {- Use an IORef to keep track of whether the 'Output' end has been garbage
+    {- Use an IORef to keep track of whether the 'Input' has been garbage
        collected and run a finalizer when the collection occurs
     -}
     rRecv    <- newIORef ()
@@ -111,11 +198,10 @@ spawn buffer = do
             return Nothing )
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
         _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
-    return (Input _send, Output _recv)
+    return (Output _send, Input _recv)
 {-# INLINABLE spawn #-}
 
-{-| 'Buffer' specifies how to store messages sent to the 'Input' end until the
-    'Output' receives them.
+{-| 'Buffer' specifies how to buffer messages stored within the mailbox
 -}
 data Buffer a
     -- | Store an 'Unbounded' number of messages in a FIFO queue
@@ -124,92 +210,11 @@ data Buffer a
     | Bounded Int
     -- | Store a 'Single' message (like @Bounded 1@, but more efficient)
     | Single
-    {-| Store the 'Latest' message, beginning with an initial value
+    {-| Only store the 'Latest' message, beginning with an initial value
 
         'Latest' is never empty nor full.
     -}
     | Latest a
-
--- | Accepts messages for the mailbox
-newtype Input a = Input {
-    {-| Send a message to the mailbox
-
-        * Fails and returns 'False' if the mailbox's 'Output' has been garbage
-          collected (even if the mailbox is not full), otherwise it:
-
-        * Retries if the mailbox is full, or:
-
-        * Succeeds if the mailbox is not full and returns 'True'.
-    -}
-    send :: a -> S.STM Bool }
-
-instance Monoid (Input a) where
-    mempty  = Input (\_ -> return False)
-    mappend i1 i2 = Input (\a -> (||) <$> send i1 a <*> send i2 a)
-
--- | Retrieves messages from the mailbox
-newtype Output a = Output {
-    {-| Receive a message from the mailbox
-
-        * Succeeds and returns a 'Just' if the mailbox is not empty, otherwise
-          it:
-
-        * Retries if mailbox's 'Input' has not been garbage collected, or:
-
-        * Fails if the mailbox's 'Input' has been garbage collected and returns
-          'Nothing'.
-    -}
-    recv :: S.STM (Maybe a) }
-
-instance Functor Output where
-    fmap f m = Output (fmap (fmap f) (recv m))
-
-instance Applicative Output where
-    pure r    = Output (pure (pure r))
-    mf <*> mx = Output ((<*>) <$> recv mf <*> recv mx)
-
-instance Monad Output where
-    return r = Output (return (return r))
-    m >>= f  = Output $ do
-        ma <- recv m
-        case ma of
-            Nothing -> return Nothing
-            Just a  -> recv (f a)
-
--- Deriving 'Alternative'
-instance Alternative Output where
-    empty   = Output empty
-    x <|> y = Output (recv x <|> recv y)
-
-{-| Convert an 'Input' to a 'Pipes.Consumer'
-
-    'toInput' terminates when the corresponding 'Output' is garbage collected.
--}
-toInput :: Input a -> Consumer' a IO ()
-toInput input = loop
-  where
-    loop = do
-        a     <- await
-        alive <- lift $ S.atomically $ send input a
-        when alive loop
-{-# INLINABLE toInput #-}
-
-{-| Convert an 'Output' to a 'Pipes.Producer'
-
-    'fromOutput' terminates when the 'Buffer' is empty and the corresponding
-    'Input' is garbage collected.
--}
-fromOutput :: Output a -> Producer' a IO ()
-fromOutput output = loop
-  where
-    loop = do
-        ma <- lift $ S.atomically $ recv output
-        case ma of
-            Nothing -> return ()
-            Just a  -> do
-                yield a
-                loop
-{-# INLINABLE fromOutput #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the

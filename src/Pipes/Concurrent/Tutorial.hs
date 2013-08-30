@@ -94,7 +94,7 @@ import Data.Monoid
     single stream by 'spawn'ing a first-in-first-out (FIFO) mailbox:
 
 @
- 'spawn' :: 'Buffer' a -> 'IO' ('Input' a, 'Output' a)
+ 'spawn' :: 'Buffer' a -> 'IO' ('Output' a, 'Input' a)
 @
 
     'spawn' takes a 'Buffer' as an argument which specifies how many messages to
@@ -104,42 +104,42 @@ import Data.Monoid
 > import Pipes.Concurrent
 > 
 > main = do
->     (input, output) <- spawn Unbounded
+>     (output, input) <- spawn Unbounded
 >     ...
 
    'spawn' creates this mailbox in the background and then returns two values:
 
-    * an @(Input a)@ that we use to add messages of type @a@ to the mailbox
+    * an @(Output a)@ that we use to add messages of type @a@ to the mailbox
 
-    * an @(Output a)@ that we use to consume messages of type @a@ from the
+    * an @(Input a)@ that we use to consume messages of type @a@ from the
       mailbox
 
-    We will be streaming @Event@s through our mailbox, so our @input@ has type
-    @(Input Event)@ and our @output@ has type @(Output Event)@.
+    We will be streaming @Event@s through our mailbox, so our @output@ has type
+    @(Output Event)@ and our @input@ has type @(Input Event)@.
 
-    To stream @Event@s into the mailbox , we use 'toInput', which writes values
-    to the mailbox's 'Input' end:
+    To stream @Event@s into the mailbox , we use 'toOutput', which writes values
+    to the mailbox's 'Output' end:
 
 @
- 'toInput' :: 'Input' a -> 'Consumer' a 'IO' ()
+ 'toOutput' :: 'Output' a -> 'Consumer' a 'IO' ()
 @
 
-    We can concurrently forward multiple streams to the same 'Input', which
+    We can concurrently forward multiple streams to the same 'Output', which
     asynchronously merges their messages into the same mailbox:
 
 >     ...
->     forkIO $ do runEffect $ lift user >~  toInput input
+>     forkIO $ do runEffect $ lift user >~  toOutput output
 >                 performGC  -- I'll explain 'performGC' below
 > 
->     forkIO $ do runEffect $ acidRain  >-> toInput input
+>     forkIO $ do runEffect $ acidRain  >-> toOutput output
 >                 performGC
 >     ...
 
-    To stream @Event@s out of the mailbox, we use 'fromOutput', which streams
-    values from the mailbox's 'Output' end using a 'Producer':
+    To stream @Event@s out of the mailbox, we use 'fromInput', which streams
+    values from the mailbox's 'Input' end using a 'Producer':
 
 @
- 'fromOutput' :: 'Output' a -> 'Producer' a 'IO' ()
+ 'fromInput' :: 'Input' a -> 'Producer' a 'IO' ()
 @
 
     For this example we'll build a 'Consumer' to handle this stream of @Event@s,
@@ -161,20 +161,20 @@ import Data.Monoid
     using ('>->'):
 
 >     ...
->     runEffect $ fromOutput output >-> handler
+>     runEffect $ fromInput input >-> handler
 
     Our final @main@ looks like this:
 
 > main = do
->     (input, output) <- spawn Unbounded
+>     (output, input) <- spawn Unbounded
 >
->     forkIO $ do runEffect $ lift user >~  toInput input
+>     forkIO $ do runEffect $ lift user >~  toOutput output
 >                 performGC  
 >
->     forkIO $ do runEffect $ acidRain  >-> toInput input
+>     forkIO $ do runEffect $ acidRain  >-> toOutput output
 >                 performGC
 >
->     runEffect $ fromOutput output >-> handler
+>     runEffect $ fromInput input >-> handler
 
     ... and when we run it we get the desired concurrent behavior:
 
@@ -218,11 +218,11 @@ import Data.Monoid
 > import Pipes.Concurrent
 > 
 > main = do
->     (input, output) <- spawn Unbounded
+>     (output, input) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runEffect $ fromOutput output  >-> worker i
+>           async $ do runEffect $ fromInput input  >-> worker i
 >                      performGC
->     a  <- async $ do runEffect $ each [1..10] >-> toInput input
+>     a  <- async $ do runEffect $ each [1..10] >-> toOutput output
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -249,11 +249,11 @@ import Data.Monoid
 > user = P.stdin >-> P.takeWhile (/= "quit")
 > 
 > main = do
->     (input, output) <- spawn Unbounded
+>     (output, input) <- spawn Unbounded
 >     as <- forM [1..3] $ \i ->
->           async $ do runEffect $ fromOutput output >-> worker i
+>           async $ do runEffect $ fromInput input >-> worker i
 >                      performGC
->     a  <- async $ do runEffect $ user >-> toInput input
+>     a  <- async $ do runEffect $ user >-> toOutput output
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -279,21 +279,20 @@ import Data.Monoid
 {- $termination
 
     Wait...  How do the workers know when to stop listening for data?  After
-    all, anything that has a reference to 'Input' could potentially add more
+    all, anything that has a reference to 'Output' could potentially add more
     data to the mailbox.
 
-    It turns out that 'fromOutput' is smart and only terminates when the
-    upstream 'Input' is garbage collected.  'fromOutput' builds on top of the
-    more primitive 'recv' command, which returns a 'Nothing' when the 'Input' is
-    garbage collected:
+    It turns out that 'spawn' is smart and instruments the 'Input' to
+    terminate when the 'Output' is garbage collected.  'fromInput' builds on top
+    of the more primitive 'recv' command, which returns a 'Nothing' when the
+    'Input' terminates:
 
 @
- 'recv' :: 'Output' a -> 'STM' ('Maybe' a)
+ 'recv' :: 'Input' a -> 'STM' ('Maybe' a)
 @
 
-    Otherwise, 'recv' blocks if the mailbox is empty since it assumes that if
-    the 'Input' has not been garbage collected then somebody might still produce
-    more data.
+    Otherwise, 'recv' will block if the mailbox is empty since if the 'Output'
+    has not been garbage collected then somebody might still produce more data.
 
     Does it work the other way around?  What happens if the workers go on strike
     before processing the entire data set?
@@ -301,7 +300,7 @@ import Data.Monoid
 >     ...
 >     as <- forM [1..3] $ \i ->
 >           -- Each worker refuses to process more than two values
->           async $ do runEffect $ fromOutput output >-> P.take 2 >-> worker i
+>           async $ do runEffect $ fromInput input >-> P.take 2 >-> worker i
 >                      performGC
 >     ...
 
@@ -323,21 +322,21 @@ import Data.Monoid
 > walk<Enter>
 > $
 
-    'toInput' similarly shuts down when the 'Output' is garbage collected,
-    preventing the user from submitting new values.  'toInput' builds on top of
-    the more primitive 'send' command, which returns a 'False' when the 'Output'
-    is garbage collected:
+    'spawn' tells the 'Output' to similarly terminate when the 'Input' is
+    garbage collected, preventing the user from submitting new values.
+    'toOutput' builds on top of the more primitive 'send' command, which returns
+    a 'False' when the 'Output' terminates:
 
 @
- 'send' :: 'Input' a -> a -> 'STM' 'Bool'
+ 'send' :: 'Output' a -> a -> 'STM' 'Bool'
 @
 
-    Otherwise, 'send' blocks if the mailbox is full, since it assumes that if
-    the 'Output' has not been garbage collected then somebody could still
-    consume a value from the mailbox, making room for a new value.
+    Otherwise, 'send' will blocks if the mailbox is full, since if the 'Input'
+    has not been garbage collected then somebody could still consume a value
+    from the mailbox, making room for a new value.
 
     This is why we have to insert 'performGC' calls whenever we release a
-    reference to either the 'Input' or 'Output'.  Without these calls we cannot
+    reference to either the 'Output' or 'Input'.  Without these calls we cannot
     guarantee that the garbage collector will trigger and notify the opposing
     end if the last reference was released.
 
@@ -347,12 +346,16 @@ import Data.Monoid
     next garbage collection cycle.  However, this tutorial will continue to use
     `performGC` since all the examples are short-lived programs that need to
     terminate promptly.
+
+    Note only 'Input's and 'Output's specifically built using 'spawn' make use
+    of the garbage collector.  If you build your own custom 'Input's and
+    'Output's then you do not need to use 'performGC' at all.
 -}
 
 {- $mailbox
     So far we haven't observed 'send' blocking because we only 'spawn'ed
     'Unbounded' mailboxes.  However, we can control the size of the mailbox to
-    tune the coupling between the 'Input' and the 'Output' ends.
+    tune the coupling between the 'Output' and the 'Input' ends.
 
     If we set the mailbox 'Buffer' to 'Single', then the mailbox holds exactly
     one message, forcing synchronization between 'send's and 'recv's.  Let's
@@ -360,11 +363,11 @@ import Data.Monoid
     the console:
 
 > main = do
->     (input, output) <- spawn Single
+>     (output, input) <- spawn Single
 >     as <- forM [1..3] $ \i ->
->           async $ do runEffect $ fromOutput output >-> P.take 2 >-> worker i
+>           async $ do runEffect $ fromInput input >-> P.take 2 >-> worker i
 >                      performGC
->     a  <- async $ do runEffect $ each [1..] >-> P.chain print >-> toInput input
+>     a  <- async $ do runEffect $ each [1..] >-> P.chain print >-> toOutput output
 >                      performGC
 >     mapM_ wait (a:as)
 
@@ -424,7 +427,7 @@ import Data.Monoid
     loose coupling but still want to guarantee bounded memory usage:
 
 > main = do
->     (input, output) <- spawn (Bounded 100)
+>     (output, input) <- spawn (Bounded 100)
 >     ...
 
 > $ ./work
@@ -445,8 +448,8 @@ import Data.Monoid
 
 {- $broadcast
     You can also broadcast data to multiple listeners instead of dividing up the
-    data.  Just use the 'Monoid' instance for 'Input' to combine multiple
-    'Input' ends together into a single broadcast 'Input':
+    data.  Just use the 'Monoid' instance for 'Output' to combine multiple
+    'Output' ends together into a single broadcast 'Output':
 
 > -- broadcast.hs
 >
@@ -458,13 +461,13 @@ import Data.Monoid
 > import Data.Monoid
 > 
 > main = do
->     (input1, output1) <- spawn Unbounded
->     (input2, output2) <- spawn Unbounded
+>     (output1, input1) <- spawn Unbounded
+>     (output2, input2) <- spawn Unbounded
 >     a1 <- async $ do
->         runEffect $ P.stdin >-> toInput (input1 <> input2)
+>         runEffect $ P.stdin >-> toOutput (output1 <> output2)
 >         performGC
->     as <- forM [output1, output2] $ \output -> async $ do
->         runEffect $ fromOutput output >-> P.take 2 >-> P.stdout
+>     as <- forM [input1, input2] $ \input -> async $ do
+>         runEffect $ fromInput input >-> P.take 2 >-> P.stdout
 >         performGC
 >     mapM_ wait (a1:as)
 
@@ -482,13 +485,13 @@ import Data.Monoid
 > GHI<Enter>
 > $ 
 
-    The combined 'Input' stays alive as long as any of the original 'Input's
-    remains alive.  In the above example, 'toInput' terminates on the third
+    The combined 'Output' stays alive as long as any of the original 'Output's
+    remains alive.  In the above example, 'toOutput' terminates on the third
     'send' attempt because it detects that both listeners died after receiving
     two messages.
 
-    Use 'mconcat' to broadcast to a list of 'Input's, but keep in mind that you
-    will incur a performance price if you combine thousands of 'Input's or more
+    Use 'mconcat' to broadcast to a list of 'Output's, but keep in mind that you
+    will incur a performance price if you combine thousands of 'Output's or more
     because they will create a very large 'STM' transaction.  You can improve
     performance for very large broadcasts if you sacrifice atomicity and
     manually combine multiple 'send' actions in 'IO' instead of 'STM'.
@@ -525,10 +528,10 @@ import Data.Monoid
 > import Pipes.Concurrent
 > 
 > main = do
->     (input, output) <- spawn (Latest 0)
->     a1 <- async $ do runEffect $ inputDevice >-> toInput input
+>     (output, input) <- spawn (Latest 0)
+>     a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                      performGC
->     a2 <- async $ do runEffect $ fromOutput output >-> P.take 5 >-> outputDevice
+>     a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
 >                      performGC
 >     mapM_ wait [a1, a2]
 
@@ -566,7 +569,7 @@ import Data.Monoid
 >     callback str
 
     We can use 'send' to free the data from the callback and then we can
-    retrieve the data on the outside using 'fromOutput':
+    retrieve the data on the outside using 'fromInput':
 
 > import Pipes
 > import Pipes.Concurrent
@@ -574,9 +577,9 @@ import Data.Monoid
 > 
 > onLines' :: Producer String IO ()
 > onLines' = do
->     (input, output) <- lift $ spawn Single
->     lift $ forkIO $ onLines (\str -> atomically $ send input str)
->     fromOutput output
+>     (output, input) <- lift $ spawn Single
+>     lift $ forkIO $ onLines (\str -> atomically $ send output str)
+>     fromInput input
 > 
 > main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 
@@ -617,10 +620,10 @@ import Data.Monoid
 >     (in1, out1) <- spawn Unbounded
 >     (in2, out2) <- spawn Unbounded
 >     a1 <- async $ do
->         runEffect $ (each [1,2] >> fromOutput out1) >-> toInput in2
+>         runEffect $ (each [1,2] >> fromInput out1) >-> toOutput in2
 >         performGC
 >     a2 <- async $ do
->         runEffect $ fromOutput out2 >-> P.chain print >-> P.take 6 >-> toInput in1
+>         runEffect $ fromInput out2 >-> P.chain print >-> P.take 6 >-> toOutput in1
 >         performGC
 >     mapM_ wait [a1, a2]
 
@@ -696,15 +699,15 @@ import Data.Monoid
 >            Quit   -> return ()
 >
 >main = do
->    (input, output) <- spawn Unbounded
+>    (output, input) <- spawn Unbounded
 >
->    forkIO $ do runEffect $ lift user >~  toInput input
+>    forkIO $ do runEffect $ lift user >~  toOutput output
 >                performGC
 >
->    forkIO $ do runEffect $ acidRain  >-> toInput input
+>    forkIO $ do runEffect $ acidRain  >-> toOutput output
 >                performGC
 >
->    runEffect $ fromOutput output >-> handler
+>    runEffect $ fromInput input >-> handler
 
 >-- work.hs
 >
@@ -725,18 +728,18 @@ import Data.Monoid
 >user = P.stdin >-> P.takeWhile (/= "quit")
 >
 >main = do
->--  (input, output) <- spawn Unbounded
->--  (input, output) <- spawn Single
->    (input, output) <- spawn (Bounded 100)
+>--  (output, input) <- spawn Unbounded
+>--  (output, input) <- spawn Single
+>    (output, input) <- spawn (Bounded 100)
 >
 >    as <- forM [1..3] $ \i ->
->--        async $ do runEffect $ fromOutput output  >-> worker i
->          async $ do runEffect $ fromOutput output  >-> P.take 2 >-> worker i
+>--        async $ do runEffect $ fromInput input  >-> worker i
+>          async $ do runEffect $ fromInput input  >-> P.take 2 >-> worker i
 >                     performGC
 >
->--  a  <- async $ do runEffect $ each [1..10]                 >-> toInput input
->--  a  <- async $ do runEffect $ user                         >-> toInput input
->    a  <- async $ do runEffect $ each [1..] >-> P.chain print >-> toInput input
+>--  a  <- async $ do runEffect $ each [1..10]                 >-> toOutput output
+>--  a  <- async $ do runEffect $ user                         >-> toOutput output
+>    a  <- async $ do runEffect $ each [1..] >-> P.chain print >-> toOutput output
 >                     performGC
 >
 >    mapM_ wait (a:as)
@@ -761,10 +764,10 @@ import Data.Monoid
 >        threadDelay 1000000
 >
 >main = do
->    (input, output) <- spawn (Latest 0)
->    a1 <- async $ do runEffect $ inputDevice >-> toInput input
+>    (output, input) <- spawn (Latest 0)
+>    a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                     performGC
->    a2 <- async $ do runEffect $ fromOutput output >-> P.take 5 >-> outputDevice
+>    a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
 >                     performGC
 >    mapM_ wait [a1, a2]
 
@@ -782,9 +785,9 @@ import Data.Monoid
 >
 >onLines' :: Producer String IO ()
 >onLines' = do
->    (input, output) <- lift $ spawn Single
->    lift $ forkIO $ onLines (\str -> atomically $ send input str)
->    fromOutput output
+>    (output, input) <- lift $ spawn Single
+>    lift $ forkIO $ onLines (\str -> atomically $ send output str)
+>    fromInput input
 >
 >main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
 -}
