@@ -56,9 +56,7 @@ import Control.Monad (when)
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
-import Pipes (lift, yield, await)
-import Pipes.Core (Producer', Consumer')
-import qualified Pipes.Core as P
+import Pipes (lift, yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
 {-| Spawn a mailbox that has an 'Input' and 'Output' end, using the specified
