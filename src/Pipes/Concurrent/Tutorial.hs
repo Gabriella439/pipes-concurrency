@@ -467,12 +467,12 @@ import Data.Monoid
 >         runEffect $ P.stdin >-> toOutput (output1 <> output2)
 >         performGC
 >     as <- forM [input1, input2] $ \input -> async $ do
->         runEffect $ fromInput input >-> P.take 2 >-> P.stdout
+>         runEffect $ fromInput input >-> P.take 2 >-> P.stdoutLn
 >         performGC
 >     mapM_ wait (a1:as)
 
     In the above example, 'P.stdin' will broadcast user input to both mailboxes,
-    and each mailbox forwards its values to 'P.stdout', echoing the message to
+    and each mailbox forwards its values to 'P.stdoutLn', echoing the message to
     standard output:
 
 > $ ./broadcast
@@ -581,7 +581,7 @@ import Data.Monoid
 >     lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >     fromInput input
 > 
-> main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
+> main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdoutLn
 
     Now we can stream from the callback as if it were an ordinary 'Producer':
 
@@ -789,5 +789,5 @@ import Data.Monoid
 >    lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >    fromInput input
 >
->main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdout
+>main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdoutLn
 -}
