@@ -246,7 +246,7 @@ import Data.Monoid
     input until the user types \"quit\":
 
 > user :: Producer String IO ()
-> user = P.stdin >-> P.takeWhile (/= "quit")
+> user = P.stdinLn >-> P.takeWhile (/= "quit")
 > 
 > main = do
 >     (output, input) <- spawn Unbounded
@@ -464,16 +464,16 @@ import Data.Monoid
 >     (output1, input1) <- spawn Unbounded
 >     (output2, input2) <- spawn Unbounded
 >     a1 <- async $ do
->         runEffect $ P.stdin >-> toOutput (output1 <> output2)
+>         runEffect $ P.stdinLn >-> toOutput (output1 <> output2)
 >         performGC
 >     as <- forM [input1, input2] $ \input -> async $ do
 >         runEffect $ fromInput input >-> P.take 2 >-> P.stdoutLn
 >         performGC
 >     mapM_ wait (a1:as)
 
-    In the above example, 'P.stdin' will broadcast user input to both mailboxes,
-    and each mailbox forwards its values to 'P.stdoutLn', echoing the message to
-    standard output:
+    In the above example, 'P.stdinLn' will broadcast user input to both
+    mailboxes, and each mailbox forwards its values to 'P.stdoutLn', echoing the
+    message to standard output:
 
 > $ ./broadcast
 > ABC<Enter>
@@ -725,7 +725,7 @@ import Data.Monoid
 >    lift $ putStrLn $ "Worker #" ++ show i ++ ": Processed " ++ show a
 >
 >user :: Producer String IO ()
->user = P.stdin >-> P.takeWhile (/= "quit")
+>user = P.stdinLn >-> P.takeWhile (/= "quit")
 >
 >main = do
 >--  (output, input) <- spawn Unbounded
