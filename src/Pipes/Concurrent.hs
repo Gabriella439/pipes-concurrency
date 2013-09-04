@@ -54,7 +54,7 @@ import Control.Monad (when)
 import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
 import GHC.Conc.Sync (unsafeIOToSTM)
-import Pipes (lift, yield, await, Producer', Consumer')
+import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
 {-| An exhaustible source of values
@@ -103,12 +103,12 @@ instance Monoid (Output a) where
 
     'toOutput' terminates when the 'Output' is exhausted.
 -}
-toOutput :: Output a -> Consumer' a IO ()
+toOutput :: (MonadIO m) => Output a -> Consumer' a m ()
 toOutput output = loop
   where
     loop = do
         a     <- await
-        alive <- lift $ S.atomically $ send output a
+        alive <- liftIO $ S.atomically $ send output a
         when alive loop
 {-# INLINABLE toOutput #-}
 
@@ -116,11 +116,11 @@ toOutput output = loop
 
     'fromInput' terminates when the 'Input' is exhausted.
 -}
-fromInput :: Input a -> Producer' a IO ()
+fromInput :: (MonadIO m) => Input a -> Producer' a m ()
 fromInput input = loop
   where
     loop = do
-        ma <- lift $ S.atomically $ recv input
+        ma <- liftIO $ S.atomically $ recv input
         case ma of
             Nothing -> return ()
             Just a  -> do
