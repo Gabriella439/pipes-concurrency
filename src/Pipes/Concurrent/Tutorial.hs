@@ -121,7 +121,7 @@ import Data.Monoid
     to the mailbox's 'Output' end:
 
 @
- 'toOutput' :: 'Output' a -> 'Consumer' a 'IO' ()
+ 'toOutput' :: ('MonadIO' m) => 'Output' a -> 'Consumer' a m ()
 @
 
     We can concurrently forward multiple streams to the same 'Output', which
@@ -139,7 +139,7 @@ import Data.Monoid
     values from the mailbox's 'Input' end using a 'Producer':
 
 @
- 'fromInput' :: 'Input' a -> 'Producer' a 'IO' ()
+ 'fromInput' :: ('MonadIO' m) => 'Input' a -> 'Producer' a m ()
 @
 
     For this example we'll build a 'Consumer' to handle this stream of @Event@s,
