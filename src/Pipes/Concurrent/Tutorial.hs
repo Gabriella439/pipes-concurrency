@@ -617,13 +617,13 @@ import Data.Monoid
 > import qualified Pipes.Prelude as P
 > 
 > main = do
->     (in1, out1) <- spawn Unbounded
->     (in2, out2) <- spawn Unbounded
+>     (out1, in1) <- spawn Unbounded
+>     (out2, in2) <- spawn Unbounded
 >     a1 <- async $ do
->         runEffect $ (each [1,2] >> fromInput out1) >-> toOutput in2
+>         runEffect $ (each [1,2] >> fromInput in1) >-> toOutput out2
 >         performGC
 >     a2 <- async $ do
->         runEffect $ fromInput out2 >-> P.chain print >-> P.take 6 >-> toOutput in1
+>         runEffect $ fromInput in2 >-> P.chain print >-> P.take 6 >-> toOutput out1
 >         performGC
 >     mapM_ wait [a1, a2]
 
