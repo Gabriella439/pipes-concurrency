@@ -345,14 +345,14 @@ import Data.Monoid
     This simply delays garbage collecting mailboxes until the next garbage
     collection cycle.
 
-    Second, you can use the 'spawn'' command, which returns a third @finalizer@
-    'STM' action:
+    Second, you can use the 'spawn'' command, which returns a third @seal@
+    action:
 
-> (output, input, finalize) <- spawn' buffer
+> (output, input, seal) <- spawn' buffer
 > ...
 
-    Use @finalize@ to seal the mailbox so that it cannot receive new messages.
-    This allows both readers and writers to shut down early without relying on
+    Use this to @seal@ the mailbox so that it cannot receive new messages.  This
+    allows both readers and writers to shut down early without relying on
     garbage collection:
 
     * writers will shut down immediately because they can no longer write to the

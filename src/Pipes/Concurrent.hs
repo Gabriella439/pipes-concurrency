@@ -133,8 +133,7 @@ fromInput input = loop
 
     Using 'send' on the 'Output'
 
-        * fails and returns 'False' if the 'Input' has been garbage collected
-          (even if the mailbox is not full), otherwise it:
+        * fails and returns 'False' if the mailbox is sealed, otherwise it:
 
         * retries if the mailbox is full, or:
 
@@ -145,10 +144,12 @@ fromInput input = loop
         * retrieves a message from the mailbox wrapped in 'Just' if the mailbox
           is not empty, otherwise it:
 
-        * retries if the 'Output' has not been garbage collected, or:
+        * retries if the mailbox is not sealed, or:
 
-        * fails if the 'Output' has been garbage collected and returns
-          'Nothing'.
+        * fails and returns 'Nothing'.
+
+    If either the 'Input' or 'Output' is garbage collected the mailbox will
+    become sealed.
 -}
 spawn :: Buffer a -> IO (Output a, Input a)
 spawn buffer = fmap simplify (spawn' buffer)
@@ -156,14 +157,14 @@ spawn buffer = fmap simplify (spawn' buffer)
     simplify (output, input, _) = (output, input)
 {-# INLINABLE spawn #-}
 
-{-| Like 'spawn', but also returns an action to finalize the mailbox, preventing
-    new values from being added:
+{-| Like 'spawn', but also returns an action to manually @seal@ the mailbox
+    early:
 
-> (output, input, finalize) <- spawn' buffer
+> (output, input, seal) <- spawn' buffer
 > ...
 
-    Use the finalizer to allow early cleanup of readers and listeners to the
-    mailbox.
+    Use the @seal@ action to allow early cleanup of readers and listeners to the
+    mailbox without waiting for the next garbage collection cycle.
 -}
 spawn' :: Buffer a -> IO (Output a, Input a, STM ())
 spawn' buffer = do
@@ -181,42 +182,32 @@ spawn' buffer = do
             t <- S.newTVarIO a
             return (S.readTVar t, S.writeTVar t)
 
-    doneSend <- S.newTVarIO False
-    let noMoreSends = S.writeTVar doneSend True
-    {- Use an IORef to keep track of whether the 'Output' has been garbage
-       collected and run a finalizer when the collection occurs
+    sealed <- S.newTVarIO False
+    let seal = S.writeTVar sealed True
+
+    {- Use IORefs to keep track of whether the 'Input' or 'Output' has been
+       garbage collected.  Seal the mailbox when either of them becomes garbage
+       collected.
     -}
     rSend <- newIORef ()
-    mkWeakIORef rSend (S.atomically noMoreSends)
-
-    doneRecv <- S.newTVarIO False
-    let noMoreRecvs = S.writeTVar doneRecv True
-    {- Use an IORef to keep track of whether the 'Input' has been garbage
-       collected and run a finalizer when the collection occurs
-    -}
+    mkWeakIORef rSend (S.atomically seal)
     rRecv <- newIORef ()
-    mkWeakIORef rRecv (S.atomically noMoreRecvs)
+    mkWeakIORef rRecv (S.atomically seal)
 
     let sendOrEnd a = do
-            b <- S.readTVar doneRecv
+            b <- S.readTVar sealed
             if b
                 then return False
                 else do
                     write a
                     return True
-        {- The '_send' action aborts without writing a value to the 'Buffer' if
-           the 'Output' has been garbage collected, since there is no point
-           wasting memory if nothing can empty the mailbox.  This protects
-           against careless users not checking send's return value, especially
-           if they use a mailbox of 'Unbounded' size.
-        -}
         readOrEnd = (Just <$> read) <|> (do
-            b <- S.readTVar doneSend
+            b <- S.readTVar sealed
             S.check b
             return Nothing )
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
         _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
-    return (Output _send, Input _recv, noMoreRecvs >> noMoreSends)
+    return (Output _send, Input _recv, seal)
 {-# INLINABLE spawn' #-}
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
