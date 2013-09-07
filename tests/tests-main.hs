@@ -20,66 +20,63 @@ labelPrint label = forever $ do
 
 testSenderClose :: Buffer Int -> IO ()
 testSenderClose buffer = do
-    (input, output) <- spawn buffer
+    (output, input) <- spawn buffer
     t1 <- async $ do
-        run $ each [1..5] >-> toInput input
+        runEffect $ each [1..5] >-> toOutput output
         performGC
     t2 <- async $ do
-        run $   fromOutput output
-            >-> P.chain (\_ -> threadDelay 1000)
-            >-> P.show
-            >-> P.stdout
+        runEffect $   fromInput input
+                  >-> P.chain (\_ -> threadDelay 1000)
+                  >-> P.print
         performGC
     wait t1
     wait t2
 
 testSenderCloseDelayedSend :: Buffer Int -> IO ()
 testSenderCloseDelayedSend buffer = do
-    (input, output) <- spawn buffer
+    (output, input) <- spawn buffer
     t1 <- async $ do
-        run $   each [1..5]
-            >-> P.tee (toInput input)
-            >-> for cat (\_ -> lift $ threadDelay 2000)
+        runEffect $   each [1..5]
+                  >-> P.tee (toOutput output)
+                  >-> for cat (\_ -> lift $ threadDelay 2000)
         performGC
     t2 <- async $ do
-        run $   fromOutput output
-            >-> P.chain (\_ -> threadDelay 1000)
-            >-> P.show
-            >-> P.stdout
+        runEffect $   fromInput input
+                  >-> P.chain (\_ -> threadDelay 1000)
+                  >-> P.print
         performGC
     wait t1
     wait t2
 
 testReceiverClose :: Buffer Int -> IO ()
 testReceiverClose buffer = do
-    (input, output) <- spawn buffer
+    (output, input) <- spawn buffer
     t1 <- async $ do
-        run $   each [1..]
-            >-> P.tee (toInput input)
-            >-> P.chain (\_ -> threadDelay 1000)
-            >-> P.show
-            >-> P.stdout
+        runEffect $   each [1..]
+                  >-> P.tee (toOutput output)
+                  >-> P.chain (\_ -> threadDelay 1000)
+                  >-> P.print
         performGC
     t2 <- async $ do
-        run $ for (fromOutput output >-> P.take 10) discard
+        runEffect $ for (fromInput input >-> P.take 10) discard
         performGC
     wait t1
     wait t2
 
 testReceiverCloseDelayedReceive :: Buffer Int -> IO ()
 testReceiverCloseDelayedReceive buffer = do
-    (input, output) <- spawn buffer
+    (output, input) <- spawn buffer
     t1 <- async $ do
-        run $   each [1..]
-            >-> P.tee (toInput input)
-            >-> P.chain (\_ -> threadDelay 1000)
-            >-> labelPrint "Send"
+        runEffect $   each [1..]
+                  >-> P.tee (toOutput output)
+                  >-> P.chain (\_ -> threadDelay 1000)
+                  >-> labelPrint "Send"
         performGC
     t2 <- async $ do
-        run $   fromOutput output
-            >-> P.take 10
-            >-> P.chain (\_ -> threadDelay 800)
-            >-> labelPrint "Recv"
+        runEffect $   fromInput input
+                  >-> P.take 10
+                  >-> P.chain (\_ -> threadDelay 800)
+                  >-> labelPrint "Recv"
         performGC
     wait t1
     wait t2
