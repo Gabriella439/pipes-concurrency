@@ -153,16 +153,19 @@ fromInput input = loop
 spawn :: Buffer a -> IO (Output a, Input a)
 spawn buffer = fmap simplify (spawn' buffer)
   where
-    simplify (output, input, _, _) = (output, input)
+    simplify (output, input, _) = (output, input)
 {-# INLINABLE spawn #-}
 
-{-| Like 'spawn', but also provides two actions to open or close the 'Input' and    'Output' early without waiting for them to be garbage collected:
+{-| Like 'spawn', but also returns an action to finalize the mailbox, preventing
+    new values from being added:
 
-> (output, input, finalizeOutput, finalizeInput) <- spawn' buffer
+> (output, input, finalize) <- spawn' buffer
 > ...
 
+    Use the finalizer to allow early cleanup of readers and listeners to the
+    mailbox.
 -}
-spawn' :: Buffer a -> IO (Output a, Input a, STM (), STM ())
+spawn' :: Buffer a -> IO (Output a, Input a, STM ())
 spawn' buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
@@ -179,20 +182,20 @@ spawn' buffer = do
             return (S.readTVar t, S.writeTVar t)
 
     doneSend <- S.newTVarIO False
-    let finalizeSend = S.writeTVar doneSend True
+    let noMoreSends = S.writeTVar doneSend True
     {- Use an IORef to keep track of whether the 'Output' has been garbage
        collected and run a finalizer when the collection occurs
     -}
     rSend <- newIORef ()
-    mkWeakIORef rSend (S.atomically finalizeSend)
+    mkWeakIORef rSend (S.atomically noMoreSends)
 
     doneRecv <- S.newTVarIO False
-    let finalizeRecv = S.writeTVar doneRecv True
+    let noMoreRecvs = S.writeTVar doneRecv True
     {- Use an IORef to keep track of whether the 'Input' has been garbage
        collected and run a finalizer when the collection occurs
     -}
     rRecv <- newIORef ()
-    mkWeakIORef rRecv (S.atomically finalizeRecv)
+    mkWeakIORef rRecv (S.atomically noMoreRecvs)
 
     let sendOrEnd a = do
             b <- S.readTVar doneRecv
@@ -213,7 +216,7 @@ spawn' buffer = do
             return Nothing )
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
         _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
-    return (Output _send, Input _recv, finalizeSend, finalizeRecv)
+    return (Output _send, Input _recv, noMoreRecvs >> noMoreSends)
 {-# INLINABLE spawn' #-}
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox

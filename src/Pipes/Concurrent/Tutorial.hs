@@ -340,16 +340,35 @@ import Data.Monoid
     guarantee that the garbage collector will trigger and notify the opposing
     end if the last reference was released.
 
-    You can also opt to not use 'performGC' at all.  This is preferable for
-    long-running programs and it is completely safe.  When you omit the
-    'performGC' call you simply delay garbage collecting mailboxes until the
-    next garbage collection cycle.  However, this tutorial will continue to use
-    `performGC` since all the examples are short-lived programs that need to
-    terminate promptly.
+    There are two ways to avoid using 'performGC'.  First, you can omit the
+    'performGC' call, which is safe and preferable for long-running programs.
+    This simply delays garbage collecting mailboxes until the next garbage
+    collection cycle.
 
-    Note only 'Input's and 'Output's specifically built using 'spawn' make use
-    of the garbage collector.  If you build your own custom 'Input's and
-    'Output's then you do not need to use 'performGC' at all.
+    Second, you can use the 'spawn'' command, which returns a third @finalizer@
+    'STM' action:
+
+> (output, input, finalize) <- spawn' buffer
+> ...
+
+    Use @finalize@ to seal the mailbox so that it cannot receive new messages.
+    This allows both readers and writers to shut down early without relying on
+    garbage collection:
+
+    * writers will shut down immediately because they can no longer write to the
+      mailbox
+
+    * readers will shut down when the mailbox goes empty because they know that
+      no new data will arrive
+
+    For simplicity, this tutorial will continue to use `performGC` since all
+    the examples are short-lived programs that do not build up a large heap.
+    However, when the heap grows large you want to avoid `performGC` and
+    consider using one of the above two alternatives instead.
+
+    Note only 'Input's and 'Output's specifically built using 'spawn' or
+    'spawn'' make use of the garbage collector.  If you build your own custom
+    'Input's and 'Output's then you do not need to use 'performGC' at all.
 -}
 
 {- $mailbox
