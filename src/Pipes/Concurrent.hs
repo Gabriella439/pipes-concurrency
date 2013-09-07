@@ -163,7 +163,7 @@ spawn buffer = fmap simplify (spawn' buffer)
 > (output, input, seal) <- spawn' buffer
 > ...
 
-    Use the @seal@ action to allow early cleanup of readers and listeners to the
+    Use the @seal@ action to allow early cleanup of readers and writers to the
     mailbox without waiting for the next garbage collection cycle.
 -}
 spawn' :: Buffer a -> IO (Output a, Input a, STM ())
