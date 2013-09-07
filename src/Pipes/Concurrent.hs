@@ -36,6 +36,7 @@ module Pipes.Concurrent (
 
     -- * Actors
     spawn,
+    spawn',
     Buffer(..),
 
     -- * Re-exports
@@ -150,7 +151,19 @@ fromInput input = loop
           'Nothing'.
 -}
 spawn :: Buffer a -> IO (Output a, Input a)
-spawn buffer = do
+spawn buffer = fmap simplify (spawn' buffer)
+  where
+    simplify (output, input, _, _) = (output, input)
+{-# INLINABLE spawn #-}
+
+{-| Like 'spawn', but also provides two actions to open or close the 'Input' and    'Output' early without waiting for them to be garbage collected:
+
+> (output, input, finalizeOutput, finalizeInput) <- spawn' buffer
+> ...
+
+-}
+spawn' :: Buffer a -> IO (Output a, Input a, STM (), STM ())
+spawn' buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
@@ -165,19 +178,21 @@ spawn buffer = do
             t <- S.newTVarIO a
             return (S.readTVar t, S.writeTVar t)
 
+    doneSend <- S.newTVarIO False
+    let finalizeSend = S.writeTVar doneSend True
     {- Use an IORef to keep track of whether the 'Output' has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rSend    <- newIORef ()
-    doneSend <- S.newTVarIO False
-    mkWeakIORef rSend (S.atomically $ S.writeTVar doneSend True)
+    rSend <- newIORef ()
+    mkWeakIORef rSend (S.atomically finalizeSend)
 
+    doneRecv <- S.newTVarIO False
+    let finalizeRecv = S.writeTVar doneRecv True
     {- Use an IORef to keep track of whether the 'Input' has been garbage
        collected and run a finalizer when the collection occurs
     -}
-    rRecv    <- newIORef ()
-    doneRecv <- S.newTVarIO False
-    mkWeakIORef rRecv (S.atomically $ S.writeTVar doneRecv True)
+    rRecv <- newIORef ()
+    mkWeakIORef rRecv (S.atomically finalizeRecv)
 
     let sendOrEnd a = do
             b <- S.readTVar doneRecv
@@ -198,11 +213,10 @@ spawn buffer = do
             return Nothing )
         _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
         _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
-    return (Output _send, Input _recv)
-{-# INLINABLE spawn #-}
+    return (Output _send, Input _recv, finalizeSend, finalizeRecv)
+{-# INLINABLE spawn' #-}
 
-{-| 'Buffer' specifies how to buffer messages stored within the mailbox
--}
+-- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
     -- | Store an 'Unbounded' number of messages in a FIFO queue
     = Unbounded
