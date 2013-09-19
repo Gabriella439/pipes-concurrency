@@ -80,10 +80,13 @@ instance Monad Input where
             Nothing -> return Nothing
             Just a  -> recv (f a)
 
--- Deriving 'Alternative'
 instance Alternative Input where
-    empty   = Input empty
-    x <|> y = Input (recv x <|> recv y)
+    empty   = Input (return Nothing)
+    x <|> y = Input $ do
+        (i, ma) <- fmap ((,) y) (recv x) <|> fmap ((,) x)(recv y)
+        case ma of
+            Nothing -> recv i
+            Just a  -> return (Just a)
 
 instance Monoid (Input a) where
     mempty = empty
