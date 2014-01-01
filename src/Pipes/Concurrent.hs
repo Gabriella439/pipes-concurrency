@@ -47,7 +47,7 @@ module Pipes.Concurrent (
     ) where
 
 import Control.Applicative (
-    Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), (<$>) )
+    Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), liftA2 )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
@@ -62,15 +62,14 @@ import System.Mem (performGC)
 
     'recv' returns 'Nothing' if the source is exhausted
 -}
-newtype Input a = Input {
-    recv :: S.STM (Maybe a) }
+newtype Input a = Input { recv :: S.STM (Maybe a) }
 
 instance Functor Input where
     fmap f m = Input (fmap (fmap f) (recv m))
 
 instance Applicative Input where
     pure r    = Input (pure (pure r))
-    mf <*> mx = Input ((<*>) <$> recv mf <*> recv mx)
+    mf <*> mx = Input (liftA2 (<*>) (recv mf) (recv mx))
 
 instance Monad Input where
     return r = Input (return (return r))
@@ -96,12 +95,11 @@ instance Monoid (Input a) where
 
     'send' returns 'False' if the sink is exhausted
 -}
-newtype Output a = Output {
-    send :: a -> S.STM Bool }
+newtype Output a = Output { send :: a -> IO Bool }
 
 instance Monoid (Output a) where
-    mempty  = Output (\_ -> return False)
-    mappend i1 i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+    mempty  = Output (pure (pure False))
+    mappend i1 i2 = Output (liftA2 (liftA2 (||)) (send i1) (send i2))
 
 {-| Convert an 'Output' to a 'Pipes.Consumer'
 
@@ -112,7 +110,7 @@ toOutput output = loop
   where
     loop = do
         a     <- await
-        alive <- liftIO $ S.atomically $ send output a
+        alive <- liftIO (send output a)
         when alive loop
 {-# INLINABLE toOutput #-}
 
@@ -124,7 +122,7 @@ fromInput :: (MonadIO m) => Input a -> Producer' a m ()
 fromInput input = loop
   where
     loop = do
-        ma <- liftIO $ S.atomically $ recv input
+        ma <- liftIO $ S.atomically (recv input)
         case ma of
             Nothing -> return ()
             Just a  -> do
@@ -169,7 +167,7 @@ spawn buffer = fmap simplify (spawn' buffer)
     Use the @seal@ action to allow early cleanup of readers and writers to the
     mailbox without waiting for the next garbage collection cycle.
 -}
-spawn' :: Buffer a -> IO (Output a, Input a, STM ())
+spawn' :: Buffer a -> IO (Output a, Input a, IO ())
 spawn' buffer = do
     (read, write) <- case buffer of
         Bounded n -> do
@@ -186,29 +184,29 @@ spawn' buffer = do
             return (S.readTVar t, S.writeTVar t)
 
     sealed <- S.newTVarIO False
-    let seal = S.writeTVar sealed True
+    let seal = atomically (S.writeTVar sealed True)
 
     {- Use IORefs to keep track of whether the 'Input' or 'Output' has been
        garbage collected.  Seal the mailbox when either of them becomes garbage
        collected.
     -}
     rSend <- newIORef ()
-    mkWeakIORef rSend (S.atomically seal)
+    mkWeakIORef rSend seal
     rRecv <- newIORef ()
-    mkWeakIORef rRecv (S.atomically seal)
+    mkWeakIORef rRecv seal
 
     let sendOrEnd a = do
-            b <- S.readTVar sealed
+            b <- S.readTVarIO sealed
             if b
                 then return False
                 else do
-                    write a
+                    atomically (write a)
                     return True
-        readOrEnd = (Just <$> read) <|> (do
+        readOrEnd = (fmap Just read) <|> (do
             b <- S.readTVar sealed
             S.check b
             return Nothing )
-        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
+        _send a = sendOrEnd a <*                readIORef rSend
         _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
     return (Output _send, Input _recv, seal)
 {-# INLINABLE spawn' #-}
