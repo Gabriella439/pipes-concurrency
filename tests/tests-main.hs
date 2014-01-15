@@ -114,9 +114,11 @@ main = do
     runTest (testSenderClose $ Bounded 7) "BoundedNotFilledSenderClose"
     runTest (testSenderClose Single) "SingleSenderClose"
     runTestExpectTimeout (testSenderCloseDelayedSend $ Latest 42) "LatestSenderClose"
+    runTest (testSenderCloseDelayedSend New) "NewSenderClose"
     --
     runTest (testReceiverClose Unbounded) "UnboundedReceiverClose"
     runTest (testReceiverClose $ Bounded 3) "BoundedFilledReceiverClose"
     runTest (testReceiverClose $ Bounded 7) "BoundedNotFilledReceiverClose"
     runTest (testReceiverClose Single) "SingleReceiverClose"
     runTest (testReceiverCloseDelayedReceive $ Latest 42) "LatestReceiverClose"
+    runTest (testReceiverClose New) "NewReceiverClose"

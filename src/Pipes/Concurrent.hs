@@ -47,7 +47,7 @@ module Pipes.Concurrent (
     ) where
 
 import Control.Applicative (
-    Alternative(empty, (<|>)), Applicative(pure, (<*>)), (<*), (<$>) )
+    Alternative(empty, (<|>)), Applicative(pure, (*>), (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
@@ -184,6 +184,9 @@ spawn' buffer = do
         Latest a  -> do
             t <- S.newTVarIO a
             return (S.writeTVar t, S.readTVar t)
+        New       -> do
+            m <- S.newEmptyTMVarIO
+            return (\x -> S.tryTakeTMVar m *> S.putTMVar m x, S.takeTMVar m)
 
     sealed <- S.newTVarIO False
     let seal = S.writeTVar sealed True
@@ -226,6 +229,7 @@ data Buffer a
         'Latest' is never empty nor full.
     -}
     | Latest a
+    | New
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
