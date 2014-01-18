@@ -1,9 +1,8 @@
 
 module Pipes.Concurrent.Broadcast (
     Broadcast(..),
-    spawnBroadcast,
-    spawnBroadcast',
-    dupBroadcast
+    broadcast,
+    subscribe
     ) where
 
 import Control.Applicative ((<|>), (<*), (<$>))
@@ -15,15 +14,13 @@ import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Pipes.Concurrent (Input(..), Output(..))
 import GHC.Conc.Sync (unsafeIOToSTM)
 
-newtype Broadcast a = Broadcast (TChan a, TVar Bool)
+data Broadcast a
+    = Broadcast
+    { bcChan    :: TChan a
+    , bcSealed  :: TVar Bool }
 
-spawnBroadcast :: IO (Output a, Broadcast a)
-spawnBroadcast = fmap simplify spawnBroadcast'
-  where
-    simplify (output, input, _) = (output, input)
-
-spawnBroadcast' :: IO (Output a, Broadcast a, STM ())
-spawnBroadcast' = do
+broadcast :: IO (Output a, Broadcast a, STM ())
+broadcast = do
     ch <- newBroadcastTChanIO
 
     sealed <- newTVarIO False
@@ -40,17 +37,19 @@ spawnBroadcast' = do
                     writeTChan ch x
                     return True
         _send x = sendOrEnd x <* unsafeIOToSTM (readIORef rSend)
-    return (Output _send, Broadcast (ch, sealed), seal)
-{-# INLINABLE spawnBroadcast #-}
 
-dupBroadcast :: Broadcast a -> IO (Input a)
-dupBroadcast (Broadcast (ch, sealed)) = do
-    nch <- atomically (dupTChan ch)
+    return (Output _send, Broadcast { bcChan = ch, bcSealed = sealed }, seal)
+{-# INLINABLE broadcast #-}
+
+subscribe :: Broadcast a -> STM (Input a)
+subscribe Broadcast {bcChan = ch, bcSealed = sealed} = do
+    nch <- dupTChan ch
 
     let _recv = (Just <$> readTChan ch) <|> (do
             b <- readTVar sealed
             check b
             return Nothing )
+
     return (Input _recv)
-{-# INLINABLE dupBroadcast #-}
+{-# INLINABLE subscribe #-}
 

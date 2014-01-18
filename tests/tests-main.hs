@@ -84,9 +84,9 @@ testReceiverCloseDelayedReceive buffer = do
 
 testBroadcast :: IO ()
 testBroadcast = do
-    (feed, bc) <- spawnBroadcast
-    eat1 <- dupBroadcast bc
-    eat2 <- dupBroadcast bc
+    (feed, bc, _) <- broadcast
+    eat1 <- atomically $ subscribe bc
+    eat2 <- atomically $ subscribe bc
     t1 <- async $ do
         runEffect $   fromInput eat1
                   >-> P.take 10
