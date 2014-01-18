@@ -45,7 +45,7 @@ subscribe :: Broadcast a -> STM (Input a)
 subscribe Broadcast {bcChan = ch, bcSealed = sealed} = do
     nch <- dupTChan ch
 
-    let _recv = (Just <$> readTChan ch) <|> (do
+    let _recv = (Just <$> readTChan nch) <|> (do
             b <- readTVar sealed
             check b
             return Nothing )
