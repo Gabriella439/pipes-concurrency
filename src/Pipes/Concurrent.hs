@@ -171,19 +171,19 @@ spawn buffer = fmap simplify (spawn' buffer)
 -}
 spawn' :: Buffer a -> IO (Output a, Input a, STM ())
 spawn' buffer = do
-    (read, write) <- case buffer of
+    (write, read) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
-            return (S.readTBQueue q, S.writeTBQueue q)
+            return (S.writeTBQueue q, S.readTBQueue q)
         Unbounded -> do
             q <- S.newTQueueIO
-            return (S.readTQueue q, S.writeTQueue q)
+            return (S.writeTQueue q, S.readTQueue q)
         Single    -> do
             m <- S.newEmptyTMVarIO
-            return (S.takeTMVar m, S.putTMVar m)
+            return (S.putTMVar m, S.takeTMVar m)
         Latest a  -> do
             t <- S.newTVarIO a
-            return (S.readTVar t, S.writeTVar t)
+            return (S.writeTVar t, S.readTVar t)
 
     sealed <- S.newTVarIO False
     let seal = S.writeTVar sealed True
