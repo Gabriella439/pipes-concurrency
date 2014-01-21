@@ -5,7 +5,6 @@ import Control.Concurrent.Async
 import Control.Monad (forever)
 import Pipes
 import Pipes.Concurrent
-import Pipes.Concurrent.Broadcast
 import qualified Pipes.Prelude as P
 import System.Exit
 import System.IO
