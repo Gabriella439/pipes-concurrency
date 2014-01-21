@@ -39,6 +39,11 @@ module Pipes.Concurrent (
     spawn',
     Buffer(..),
 
+    -- * Broadcast
+    Broadcast(..),
+    broadcast,
+    subscribe,
+
     -- * Re-exports
     -- $reexport
     module Control.Concurrent,
@@ -226,6 +231,45 @@ data Buffer a
         'Latest' is never empty nor full.
     -}
     | Latest a
+
+data Broadcast a
+    = Broadcast
+    { bcChan    :: S.TChan a
+    , bcSealed  :: S.TVar Bool }
+
+broadcast :: IO (Output a, Broadcast a, STM ())
+broadcast = do
+    ch <- S.newBroadcastTChanIO
+
+    sealed <- S.newTVarIO False
+    let seal = S.writeTVar sealed True
+
+    rSend <- newIORef ()
+    mkWeakIORef rSend (atomically seal)
+
+    let sendOrEnd x = do
+            b <- S.readTVar sealed
+            if b
+                then return False
+                else do
+                    S.writeTChan ch x
+                    return True
+        _send x = sendOrEnd x <* unsafeIOToSTM (readIORef rSend)
+
+    return (Output _send, Broadcast { bcChan = ch, bcSealed = sealed }, seal)
+{-# INLINABLE broadcast #-}
+
+subscribe :: Broadcast a -> STM (Input a)
+subscribe Broadcast {bcChan = ch, bcSealed = sealed} = do
+    nch <- S.dupTChan ch
+
+    let _recv = (Just <$> S.readTChan nch) <|> (do
+            b <- S.readTVar sealed
+            S.check b
+            return Nothing )
+
+    return (Input _recv)
+{-# INLINABLE subscribe #-}
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
