@@ -572,6 +572,38 @@ import Data.Monoid
     'recv' never removes the value from the mailbox.  A 'Latest' mailbox is also
     never full because 'send' always succeeds, overwriting the previously stored
     value.
+
+    There is also a 'New' mailbox which allows you to sleep waiting for new
+    input instead of polling endlessly.  This mailbox does not require an
+    initial value.  Instead, it begins empty and holds up to one value.
+    'send'ing a new value will never fail and will just override the currently
+    stored value (if any).  'recv'ing a value will empty the mailbox or block
+    if there is no new value stored inside.  This prevents repeatedly reading
+    the same value twice.
+
+    To illustrate this, if the `inputDevice` pauses:
+
+> inputDevice :: Producer Integer IO ()
+> inputDevice = do
+>     each [1..100]
+>     lift $ threadDelay 4000000
+>     each [101..]
+>
+> main = do
+>     (output, input) <- spawn New
+>     ...
+
+    ... then the corresponding 'Input' will now pause, too:
+
+> $ ./peek
+> 7
+> 100
+> <Longer pause>
+> 16793
+> 5239440
+> 10474439
+> $
+
 -}
 
 {- $callback
