@@ -229,6 +229,10 @@ data Buffer a
         'Latest' is never empty nor full.
     -}
     | Latest a
+    {-| Like @Single@, but 'send' overrides the currently stored message, if any
+
+        'New' is never full
+    -}
     | New
 
 {- $reexport
