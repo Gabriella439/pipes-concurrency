@@ -573,27 +573,28 @@ import Data.Monoid
     never full because 'send' always succeeds, overwriting the previously stored
     value.
 
-    There is also a 'New' mailbox which allows you to sleep waiting for new
-    input instead of polling endlessly.  This mailbox does not require an
-    initial value.  Instead, it begins empty and holds up to one value.
-    'send'ing a new value will never fail and will just override the currently
-    stored value (if any).  'recv'ing a value will empty the mailbox or block
-    if there is no new value stored inside.  This prevents repeatedly reading
-    the same value twice.
+    Another alternative is to use the 'Newest' mailbox, which is like a
+    'Bounded' mailbox, except 'send' never blocks (the mailbox is never full).
+    Instead, if there is no room 'send' will remove the oldest message from the
+    mailbox to make room for a new message.
 
-    To illustrate this, if the `inputDevice` pauses:
+    The 'New' mailbox is like the 'Newest' mailbox, except optimized for the
+    special case where you want to store a single message.  You can use 'New' to
+    read from a source that might potentially update rapidly, but still sleep if
+    the source has no new values:
 
 > inputDevice :: Producer Integer IO ()
 > inputDevice = do
->     each [1..100]
->     lift $ threadDelay 4000000
->     each [101..]
+>     each [1..100]               -- Rapid updates
+>     lift $ threadDelay 4000000  -- Source goes quiet for 4 seconds
+>     each [101..]                -- More rapid updates
 >
 > main = do
 >     (output, input) <- spawn New
 >     ...
 
-    ... then the corresponding 'Input' will now pause, too:
+    When the source goes quiet, the 'Input' will now block and wait, and will
+    never read the same value twice:
 
 > $ ./peek
 > 7

@@ -187,6 +187,10 @@ spawn' buffer = do
         New       -> do
             m <- S.newEmptyTMVarIO
             return (\x -> S.tryTakeTMVar m *> S.putTMVar m x, S.takeTMVar m)
+        Newest n  -> do
+            q <- S.newTBQueueIO n
+            let write x = S.writeTBQueue q x <|> (S.tryReadTBQueue q *> write x)
+            return (write, S.readTBQueue q)
 
     sealed <- S.newTVarIO False
     let seal = S.writeTVar sealed True
@@ -229,10 +233,11 @@ data Buffer a
         'Latest' is never empty nor full.
     -}
     | Latest a
-    {-| Like @Single@, but 'send' overrides the currently stored message, if any
-
-        'New' is never full
+    {-| Like @Bounded@, but 'send' never fails (the buffer is never full).
+        Instead, old elements are discard to make room for new elements
     -}
+    | Newest Int
+    -- | Like @Newest 1@, but more efficient
     | New
 
 {- $reexport
