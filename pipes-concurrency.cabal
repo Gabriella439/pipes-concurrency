@@ -32,7 +32,7 @@ Library
     Hs-Source-Dirs: src
     Build-Depends:
         base         >= 4   && < 5  ,
-        pipes        >= 4.0 && < 4.1,
+        pipes        >= 4.0 && < 4.2,
         stm          >= 2.4 && < 2.5
     Exposed-Modules:
         Pipes.Concurrent,
