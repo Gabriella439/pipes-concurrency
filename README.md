@@ -1,4 +1,4 @@
-# Pipes-Concurrency v2.0.1
+# Pipes-Concurrency v2.0.2
 
 `pipes-concurrency` provides an actor-like concurrency system that interfaces
 with
@@ -30,7 +30,7 @@ asynchronous events and broadcasting to multiple outputs.
 
 ## Development Status
 
-`pipes-concurrency` is mostly complete and if the API does not change by the end
+`pipes-concurrency` is relatively stable.  At this point I am just adding
 of 2013 then the library will be officially stabilized.
 
 ## Community Resources
