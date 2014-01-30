@@ -1,10 +1,7 @@
 -- | Asynchronous communication between pipes
 
-{-# LANGUAGE CPP, RankNTypes#-}
+{-# LANGUAGE RankNTypes, Trustworthy #-}
 
-#if __GLASGOW_HASKELL__ >= 702
-{-# LANGUAGE Trustworthy #-}
-#endif
 {- 'unsafeIOToSTM' requires the Trustworthy annotation.
 
     I use 'unsafeIOToSTM' to touch IORefs to mark them as still alive. This
