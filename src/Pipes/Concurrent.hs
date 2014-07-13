@@ -2,26 +2,6 @@
 
 {-# LANGUAGE RankNTypes, Safe #-}
 
-{- 'unsafeIOToSTM' requires the Trustworthy annotation.
-
-    I use 'unsafeIOToSTM' to touch IORefs to mark them as still alive. This
-    action satisfies the necessary safety requirements because:
-
-    * You can safely repeat it if the transaction rolls back
-
-    * It does not acquire any resources
-
-    * It does not leak any inconsistent view of memory to the outside world
-
-    It appears to be unnecessary to read the IORef to keep it from being garbage
-    collected, but I wanted to be absolutely certain since I cannot be sure that
-    GHC won't optimize away the reference to the IORef.
-
-    The other alternative was to make 'send' and 'recv' use the 'IO' monad
-    instead of 'STM', but I felt that it was important to preserve the ability
-    to combine them into larger transactions.
--}
-
 module Pipes.Concurrent (
     -- * Inputs and Outputs
     Input(..),
