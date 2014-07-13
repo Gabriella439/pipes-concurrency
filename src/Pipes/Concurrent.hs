@@ -170,7 +170,7 @@ spawn' buffer = do
     sealed <- S.newTVarIO False
     let seal = S.writeTVar sealed True
 
-    {- Use IORefs to keep track of whether the 'Input' or 'Output' has been
+    {- Use weak TVars to keep track of whether the 'Input' or 'Output' has been
        garbage collected.  Seal the mailbox when either of them becomes garbage
        collected.
     -}
