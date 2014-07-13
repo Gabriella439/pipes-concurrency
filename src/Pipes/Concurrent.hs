@@ -1,6 +1,6 @@
 -- | Asynchronous communication between pipes
 
-{-# LANGUAGE RankNTypes, Trustworthy #-}
+{-# LANGUAGE RankNTypes, Safe #-}
 
 {- 'unsafeIOToSTM' requires the Trustworthy annotation.
 
@@ -46,12 +46,10 @@ module Pipes.Concurrent (
 import Control.Applicative (
     Alternative(empty, (<|>)), Applicative(pure, (*>), (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (atomically, STM)
+import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
 import qualified Control.Concurrent.STM as S
 import Control.Monad (when)
-import Data.IORef (newIORef, readIORef, mkWeakIORef)
 import Data.Monoid (Monoid(mempty, mappend))
-import GHC.Conc.Sync (unsafeIOToSTM)
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
@@ -196,10 +194,10 @@ spawn' buffer = do
        garbage collected.  Seal the mailbox when either of them becomes garbage
        collected.
     -}
-    rSend <- newIORef ()
-    mkWeakIORef rSend (S.atomically seal)
-    rRecv <- newIORef ()
-    mkWeakIORef rRecv (S.atomically seal)
+    rSend <- newTVarIO ()
+    mkWeakTVar rSend (S.atomically seal)
+    rRecv <- newTVarIO ()
+    mkWeakTVar rRecv (S.atomically seal)
 
     let sendOrEnd a = do
             b <- S.readTVar sealed
@@ -212,8 +210,8 @@ spawn' buffer = do
             b <- S.readTVar sealed
             S.check b
             return Nothing )
-        _send a = sendOrEnd a <* unsafeIOToSTM (readIORef rSend)
-        _recv   = readOrEnd   <* unsafeIOToSTM (readIORef rRecv)
+        _send a = sendOrEnd a <* readTVar rSend
+        _recv   = readOrEnd   <* readTVar rRecv
     return (Output _send, Input _recv, seal)
 {-# INLINABLE spawn' #-}
 
