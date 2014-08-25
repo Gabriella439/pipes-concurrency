@@ -31,9 +31,9 @@ Source-Repository head
 Library
     Hs-Source-Dirs: src
     Build-Depends:
-        base         >= 4   && < 5  ,
-        pipes        >= 4.0 && < 4.2,
-        stm          >= 2.4 && < 2.5
+        base         >= 4     && < 5  ,
+        pipes        >= 4.0   && < 4.2,
+        stm          >= 2.4.3 && < 2.5
     Exposed-Modules:
         Pipes.Concurrent,
         Pipes.Concurrent.Tutorial
