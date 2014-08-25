@@ -15,6 +15,10 @@ module Pipes.Concurrent (
     spawn,
     spawn',
     Buffer(..),
+    unbounded,
+    bounded,
+    latest,
+    newest,
 
     -- * Re-exports
     -- $reexport
@@ -197,23 +201,42 @@ spawn' buffer = do
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
-    -- | Store an 'Unbounded' number of messages in a FIFO queue
     = Unbounded
-    -- | Store a 'Bounded' number of messages, specified by the 'Int' argument
     | Bounded Int
-    -- | Store a 'Single' message (like @Bounded 1@, but more efficient)
     | Single
-    {-| Only store the 'Latest' message, beginning with an initial value
-
-        'Latest' is never empty nor full.
-    -}
     | Latest a
-    {-| Like @Bounded@, but 'send' never fails (the buffer is never full).
-        Instead, old elements are discard to make room for new elements
-    -}
     | Newest Int
-    -- | Like @Newest 1@, but more efficient
     | New
+
+{-# DEPRECATED Unbounded "Use `unbounded` instead" #-}
+{-# DEPRECATED Bounded "Use `bounded` instead" #-}
+{-# DEPRECATED Single "Use @`bounded` 1@ instead" #-}
+{-# DEPRECATED Latest "Use `latest` instead" #-}
+{-# DEPRECATED Newest "Use `newest` instead" #-}
+{-# DEPRECATED New "Use @`newest` 1@ instead" #-}
+
+-- | Store an unbounded number of messages in a FIFO queue
+unbounded :: Buffer a
+unbounded = Unbounded
+
+-- | Store a bounded number of messages, specified by the 'Int' argument
+bounded :: Int -> Buffer a
+bounded 1 = Single
+bounded n = Bounded n
+
+{-| Only store the 'Latest' message, beginning with an initial value
+
+    'Latest' is never empty nor full.
+-}
+latest :: a -> Buffer a
+latest = Latest
+
+{-| Like @Bounded@, but 'send' never fails (the buffer is never full).
+    Instead, old elements are discard to make room for new elements
+-}
+newest :: Int -> Buffer a
+newest 1 = New
+newest n = Newest n
 
 {- $reexport
     @Control.Concurrent@ re-exports 'forkIO', although I recommend using the
