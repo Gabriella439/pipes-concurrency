@@ -32,7 +32,7 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
 import qualified Control.Concurrent.STM as S
-import Control.Monad (when)
+import Control.Monad (when,void)
 import Data.Monoid (Monoid(mempty, mappend))
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
@@ -179,9 +179,9 @@ spawn' buffer = do
        collected.
     -}
     rSend <- newTVarIO ()
-    mkWeakTVar rSend (S.atomically seal)
+    void $ mkWeakTVar rSend (S.atomically seal)
     rRecv <- newTVarIO ()
-    mkWeakTVar rRecv (S.atomically seal)
+    void $ mkWeakTVar rRecv (S.atomically seal)
 
     let sendOrEnd a = do
             b <- S.readTVar sealed
