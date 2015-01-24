@@ -214,9 +214,9 @@ spawn' buffer = do
 -}
 withSpawn :: Buffer a -> (Output a -> Input a -> IO r) -> IO r
 withSpawn buffer action = bracket
-    (                          spawn' buffer  )
-    (\(_     ,  _   , seal) -> atomically seal)
-    (\(output, input, _   ) -> f output input )
+    (                          spawn' buffer      )
+    (\(_     ,  _   , seal) -> atomically seal    )
+    (\(output, input, _   ) -> action output input)
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
