@@ -14,6 +14,7 @@ module Pipes.Concurrent (
     -- * Actors
     spawn,
     spawn',
+    withSpawn,
     Buffer(..),
     unbounded,
     bounded,
