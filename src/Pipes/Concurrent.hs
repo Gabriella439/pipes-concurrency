@@ -32,7 +32,7 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
 import qualified Control.Concurrent.STM as S
-import Control.Monad (when,void)
+import Control.Monad (when,void, MonadPlus(..))
 import Data.Monoid (Monoid(mempty, mappend))
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
