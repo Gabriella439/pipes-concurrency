@@ -67,6 +67,10 @@ instance Alternative Input where
             Nothing -> recv i
             Just a  -> return (Just a)
 
+instance MonadPlus Input where
+    mzero = empty
+    mplus = (<|>)
+
 instance Monoid (Input a) where
     mempty = empty
     mappend = (<|>)
