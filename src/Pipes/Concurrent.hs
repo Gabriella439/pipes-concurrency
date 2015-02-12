@@ -209,15 +209,15 @@ spawn' buffer = do
     but automatically @seal@s them after the action completes.  This can be used when you need the
     @seal@ing behavior available from 'spawn\'', but want to work at a bit higher level:
 
-> withSpawn buffer $ \output input -> ...
+> withSpawn buffer $ \(output, input) -> ...
 
     'withSpawn' is exception-safe, since it uses 'bracket' internally.
 -}
-withSpawn :: Buffer a -> (Output a -> Input a -> IO r) -> IO r
+withSpawn :: Buffer a -> ((Output a, Input a) -> IO r) -> IO r
 withSpawn buffer action = bracket
-    (                          spawn' buffer      )
-    (\(_     , _    , seal) -> atomically seal    )
-    (\(output, input, _   ) -> action output input)
+    (spawn' buffer)
+    (\(_, _, seal) -> atomically seal)
+    (\(output, input, _) -> action (output, input))
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
