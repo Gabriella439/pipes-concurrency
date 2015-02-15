@@ -1,9 +1,10 @@
 Name: pipes-concurrency
-Version: 2.0.2
+Version: 2.1
 Cabal-Version: >=1.8.0.2
 Build-Type: Simple
 License: BSD3
 License-File: LICENSE
+Extra-Source-Files: README.md changelog.md
 Copyright: 2013, 2014 Gabriel Gonzalez
 Author: Gabriel Gonzalez
 Maintainer: Gabriel439@gmail.com
@@ -44,8 +45,8 @@ Test-Suite tests
     Main-Is: tests-main.hs
     HS-Source-Dirs: tests .
     Build-Depends:
-        base              >= 4     && < 5  ,
-        pipes             >= 4.0.0 && < 4.2,
-        pipes-concurrency >= 2.0.0 && < 2.1,
-        stm               >= 2.4.3 && < 2.5,
         async             >= 2.0   && < 2.1
+      , base
+      , pipes
+      , pipes-concurrency
+      , stm
