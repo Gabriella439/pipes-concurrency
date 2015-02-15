@@ -13,7 +13,6 @@ module Pipes.Concurrent (
 
     -- * Actors
     spawn,
-    spawn',
     withSpawn,
     Buffer(..),
     unbounded,
@@ -25,19 +24,17 @@ module Pipes.Concurrent (
     -- $reexport
     module Control.Concurrent,
     module Control.Concurrent.STM,
-    module System.Mem
     ) where
 
 import Control.Applicative (
     Alternative(empty, (<|>)), Applicative(pure, (*>), (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
+import Control.Concurrent.STM (atomically, STM)
 import qualified Control.Concurrent.STM as S
 import Control.Exception (bracket)
 import Control.Monad (when,void, MonadPlus(..))
 import Data.Monoid (Monoid(mempty, mappend))
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
-import System.Mem (performGC)
 
 {-| An exhaustible source of values
 
@@ -119,6 +116,9 @@ fromInput input = loop
 
 {-| Spawn a mailbox using the specified 'Buffer' to store messages
 
+> (output, input, seal) <- spawn buffer
+> ...
+
     Using 'send' on the 'Output'
 
         * fails and returns 'False' if the mailbox is sealed, otherwise it:
@@ -136,26 +136,10 @@ fromInput input = loop
 
         * fails and returns 'Nothing'.
 
-    If either the 'Input' or 'Output' is garbage collected the mailbox will
-    become sealed.
+    Use @seal@ to close the mailbox so that no more messages can be sent to it.
 -}
-spawn :: Buffer a -> IO (Output a, Input a)
-spawn buffer = fmap simplify (spawn' buffer)
-  where
-    simplify (output, input, _) = (output, input)
-{-# INLINABLE spawn #-}
-
-{-| Like 'spawn', but also returns an action to manually @seal@ the mailbox
-    early:
-
-> (output, input, seal) <- spawn' buffer
-> ...
-
-    Use the @seal@ action to allow early cleanup of readers and writers to the
-    mailbox without waiting for the next garbage collection cycle.
--}
-spawn' :: Buffer a -> IO (Output a, Input a, STM ())
-spawn' buffer = do
+spawn :: Buffer a -> IO (Output a, Input a, STM ())
+spawn buffer = do
     (write, read) <- case buffer of
         Bounded n -> do
             q <- S.newTBQueueIO n
@@ -179,17 +163,7 @@ spawn' buffer = do
 
     sealed <- S.newTVarIO False
     let seal = S.writeTVar sealed True
-
-    {- Use weak TVars to keep track of whether the 'Input' or 'Output' has been
-       garbage collected.  Seal the mailbox when either of them becomes garbage
-       collected.
-    -}
-    rSend <- newTVarIO ()
-    void $ mkWeakTVar rSend (S.atomically seal)
-    rRecv <- newTVarIO ()
-    void $ mkWeakTVar rRecv (S.atomically seal)
-
-    let sendOrEnd a = do
+        sendOrEnd a = do
             b <- S.readTVar sealed
             if b
                 then return False
@@ -200,14 +174,11 @@ spawn' buffer = do
             b <- S.readTVar sealed
             S.check b
             return Nothing )
-        _send a = sendOrEnd a <* readTVar rSend
-        _recv   = readOrEnd   <* readTVar rRecv
-    return (Output _send, Input _recv, seal)
-{-# INLINABLE spawn' #-}
+    return (Output sendOrEnd, Input readOrEnd, seal)
+{-# INLINABLE spawn #-}
 
-{-| 'withSpawn' passes its enclosed action an 'Output' and 'Input' like you'd get from 'spawn',
-    but automatically @seal@s them after the action completes.  This can be used when you need the
-    @seal@ing behavior available from 'spawn\'', but want to work at a bit higher level:
+{-| 'withSpawn' passes its enclosed action an 'Output' and 'Input' like you'd
+    get from 'spawn', but automatically @seal@s them after the action completes.
 
 > withSpawn buffer $ \(output, input) -> ...
 
@@ -215,7 +186,7 @@ spawn' buffer = do
 -}
 withSpawn :: Buffer a -> ((Output a, Input a) -> IO r) -> IO r
 withSpawn buffer action = bracket
-    (spawn' buffer)
+    (spawn buffer)
     (\(_, _, seal) -> atomically seal)
     (\(output, input, _) -> action (output, input))
 
@@ -263,6 +234,4 @@ newest n = Newest n
     @async@ library instead.
 
     @Control.Concurrent.STM@ re-exports 'atomically' and 'STM'.
-
-    @System.Mem@ re-exports 'performGC'.
 -}

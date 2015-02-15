@@ -2,6 +2,7 @@ module Main ( main ) where
 
 import Control.Concurrent hiding (yield)
 import Control.Concurrent.Async
+import Control.Concurrent.STM (atomically)
 import Control.Monad (forever)
 import Pipes
 import Pipes.Concurrent
@@ -20,64 +21,60 @@ labelPrint label = forever $ do
 
 testSenderClose :: Buffer Int -> IO ()
 testSenderClose buffer = do
-    (output, input) <- spawn buffer
+    (output, input, seal) <- spawn buffer
     t1 <- async $ do
         runEffect $ each [1..5] >-> toOutput output
-        performGC
+        atomically seal
     t2 <- async $ do
         runEffect $   fromInput input
                   >-> P.chain (\_ -> threadDelay 1000)
                   >-> P.print
-        performGC
     wait t1
     wait t2
 
 testSenderCloseDelayedSend :: Buffer Int -> IO ()
 testSenderCloseDelayedSend buffer = do
-    (output, input) <- spawn buffer
+    (output, input, seal) <- spawn buffer
     t1 <- async $ do
         runEffect $   each [1..5]
                   >-> P.tee (toOutput output)
                   >-> for cat (\_ -> lift $ threadDelay 2000)
-        performGC
+        atomically seal
     t2 <- async $ do
         runEffect $   fromInput input
                   >-> P.chain (\_ -> threadDelay 1000)
                   >-> P.print
-        performGC
     wait t1
     wait t2
 
 testReceiverClose :: Buffer Int -> IO ()
 testReceiverClose buffer = do
-    (output, input) <- spawn buffer
+    (output, input, seal) <- spawn buffer
     t1 <- async $ do
         runEffect $   each [1..]
                   >-> P.tee (toOutput output)
                   >-> P.chain (\_ -> threadDelay 1000)
                   >-> P.print
-        performGC
     t2 <- async $ do
         runEffect $ for (fromInput input >-> P.take 10) discard
-        performGC
+        atomically seal
     wait t1
     wait t2
 
 testReceiverCloseDelayedReceive :: Buffer Int -> IO ()
 testReceiverCloseDelayedReceive buffer = do
-    (output, input) <- spawn buffer
+    (output, input, seal) <- spawn buffer
     t1 <- async $ do
         runEffect $   each [1..]
                   >-> P.tee (toOutput output)
                   >-> P.chain (\_ -> threadDelay 1000)
                   >-> labelPrint "Send"
-        performGC
     t2 <- async $ do
         runEffect $   fromInput input
                   >-> P.take 10
                   >-> P.chain (\_ -> threadDelay 800)
                   >-> labelPrint "Recv"
-        performGC
+        atomically seal
     wait t1
     wait t2
 
@@ -109,16 +106,16 @@ runTestExpectTimeout test name = do
 
 main :: IO ()
 main = do
-    runTest (testSenderClose Unbounded) "UnboundedSenderClose"
-    runTest (testSenderClose $ Bounded 3) "BoundedFilledSenderClose"
-    runTest (testSenderClose $ Bounded 7) "BoundedNotFilledSenderClose"
-    runTest (testSenderClose Single) "SingleSenderClose"
-    runTestExpectTimeout (testSenderCloseDelayedSend $ Latest 42) "LatestSenderClose"
-    runTest (testSenderCloseDelayedSend New) "NewSenderClose"
+    runTest (testSenderClose unbounded) "UnboundedSenderClose"
+    runTest (testSenderClose $ bounded 3) "BoundedFilledSenderClose"
+    runTest (testSenderClose $ bounded 7) "BoundedNotFilledSenderClose"
+    runTest (testSenderClose $ bounded 1) "SingleSenderClose"
+    runTestExpectTimeout (testSenderCloseDelayedSend $ latest 42) "LatestSenderClose"
+    runTest (testSenderCloseDelayedSend (newest 1)) "NewSenderClose"
     --
-    runTest (testReceiverClose Unbounded) "UnboundedReceiverClose"
-    runTest (testReceiverClose $ Bounded 3) "BoundedFilledReceiverClose"
-    runTest (testReceiverClose $ Bounded 7) "BoundedNotFilledReceiverClose"
-    runTest (testReceiverClose Single) "SingleReceiverClose"
-    runTest (testReceiverCloseDelayedReceive $ Latest 42) "LatestReceiverClose"
-    runTest (testReceiverClose New) "NewReceiverClose"
+    runTest (testReceiverClose unbounded) "UnboundedReceiverClose"
+    runTest (testReceiverClose $ bounded 3) "BoundedFilledReceiverClose"
+    runTest (testReceiverClose $ bounded 7) "BoundedNotFilledReceiverClose"
+    runTest (testReceiverClose $ bounded 1) "SingleReceiverClose"
+    runTest (testReceiverCloseDelayedReceive $ latest 42) "LatestReceiverClose"
+    runTest (testReceiverClose $ newest 1) "NewReceiverClose"
