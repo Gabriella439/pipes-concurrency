@@ -109,16 +109,16 @@ runTestExpectTimeout test name = do
 
 main :: IO ()
 main = do
-    runTest (testSenderClose Unbounded) "UnboundedSenderClose"
-    runTest (testSenderClose $ Bounded 3) "BoundedFilledSenderClose"
-    runTest (testSenderClose $ Bounded 7) "BoundedNotFilledSenderClose"
-    runTest (testSenderClose Single) "SingleSenderClose"
-    runTestExpectTimeout (testSenderCloseDelayedSend $ Latest 42) "LatestSenderClose"
-    runTest (testSenderCloseDelayedSend New) "NewSenderClose"
+    runTest (testSenderClose unbounded) "UnboundedSenderClose"
+    runTest (testSenderClose $ bounded 3) "BoundedFilledSenderClose"
+    runTest (testSenderClose $ bounded 7) "BoundedNotFilledSenderClose"
+    runTest (testSenderClose (bounded 1)) "SingleSenderClose"
+    runTestExpectTimeout (testSenderCloseDelayedSend $ latest 42) "LatestSenderClose"
+    runTest (testSenderCloseDelayedSend (newest 1)) "NewSenderClose"
     --
-    runTest (testReceiverClose Unbounded) "UnboundedReceiverClose"
-    runTest (testReceiverClose $ Bounded 3) "BoundedFilledReceiverClose"
-    runTest (testReceiverClose $ Bounded 7) "BoundedNotFilledReceiverClose"
-    runTest (testReceiverClose Single) "SingleReceiverClose"
-    runTest (testReceiverCloseDelayedReceive $ Latest 42) "LatestReceiverClose"
-    runTest (testReceiverClose New) "NewReceiverClose"
+    runTest (testReceiverClose unbounded) "UnboundedReceiverClose"
+    runTest (testReceiverClose $ bounded 3) "BoundedFilledReceiverClose"
+    runTest (testReceiverClose $ bounded 7) "BoundedNotFilledReceiverClose"
+    runTest (testReceiverClose (bounded 1)) "SingleReceiverClose"
+    runTest (testReceiverCloseDelayedReceive $ latest 42) "LatestReceiverClose"
+    runTest (testReceiverClose (newest 1)) "NewReceiverClose"

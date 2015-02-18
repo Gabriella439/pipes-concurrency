@@ -102,9 +102,9 @@ import Data.Monoid
     messages:
 
 > import Pipes.Concurrent
-> 
+>
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     ...
 
    'spawn' creates this mailbox in the background and then returns two values:
@@ -130,7 +130,7 @@ import Data.Monoid
 >     ...
 >     forkIO $ do runEffect $ lift user >~  toOutput output
 >                 performGC  -- I'll explain 'performGC' below
-> 
+>
 >     forkIO $ do runEffect $ acidRain  >-> toOutput output
 >                 performGC
 >     ...
@@ -166,10 +166,10 @@ import Data.Monoid
     Our final @main@ looks like this:
 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >
 >     forkIO $ do runEffect $ lift user >~  toOutput output
->                 performGC  
+>                 performGC
 >
 >     forkIO $ do runEffect $ acidRain  >-> toOutput output
 >                 performGC
@@ -203,7 +203,7 @@ import Data.Monoid
 > import Control.Concurrent (threadDelay)
 > import Control.Monad
 > import Pipes
-> 
+>
 > worker :: (Show a) => Int -> Consumer a IO r
 > worker i = forever $ do
 >     a <- await
@@ -216,9 +216,9 @@ import Data.Monoid
 > import Control.Concurrent.Async
 > import qualified Pipes.Prelude as P
 > import Pipes.Concurrent
-> 
+>
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input  >-> worker i
 >                      performGC
@@ -247,9 +247,9 @@ import Data.Monoid
 
 > user :: Producer String IO ()
 > user = P.stdinLn >-> P.takeWhile (/= "quit")
-> 
+>
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input >-> worker i
 >                      performGC
@@ -382,7 +382,7 @@ import Data.Monoid
     the console:
 
 > main = do
->     (output, input) <- spawn Single
+>     (output, input) <- spawn (bounded 1)
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input >-> P.take 2 >-> worker i
 >                      performGC
@@ -442,11 +442,11 @@ import Data.Monoid
 > $
 
     You can also choose something in between by using a 'Bounded' mailbox which
-    caps the mailbox size to a fixed value.  Use 'Bounded' when you want mostly
+    caps the mailbox size to a fixed value.  Use 'bounded' when you want mostly
     loose coupling but still want to guarantee bounded memory usage:
 
 > main = do
->     (output, input) <- spawn (Bounded 100)
+>     (output, input) <- spawn (bounded 100)
 >     ...
 
 > $ ./work
@@ -478,10 +478,10 @@ import Data.Monoid
 > import Pipes.Concurrent
 > import qualified Pipes.Prelude as P
 > import Data.Monoid
-> 
+>
 > main = do
->     (output1, input1) <- spawn Unbounded
->     (output2, input2) <- spawn Unbounded
+>     (output1, input1) <- spawn unbounded
+>     (output2, input2) <- spawn unbounded
 >     a1 <- async $ do
 >         runEffect $ P.stdinLn >-> toOutput (output1 <> output2)
 >         performGC
@@ -502,7 +502,7 @@ import Data.Monoid
 > DEF
 > DEF
 > GHI<Enter>
-> $ 
+> $
 
     The combined 'Output' stays alive as long as any of the original 'Output's
     remains alive.  In the above example, 'toOutput' terminates on the third
@@ -525,11 +525,11 @@ import Data.Monoid
 > import Control.Monad
 > import Pipes
 > import qualified Pipes.Prelude as P
-> 
+>
 > -- Fast input updates
 > inputDevice :: (Monad m) => Producer Integer m ()
 > inputDevice = each [1..]
-> 
+>
 > -- Slow output updates
 > outputDevice :: Consumer Integer IO r
 > outputDevice = forever $ do
@@ -545,17 +545,17 @@ import Data.Monoid
 
 > import Control.Concurrent.Async
 > import Pipes.Concurrent
-> 
+>
 > main = do
->     (output, input) <- spawn (Latest 0)
+>     (output, input) <- spawn (latest 0)
 >     a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                      performGC
 >     a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
 >                      performGC
 >     mapM_ wait [a1, a2]
 
-    'Latest' selects a mailbox that always stores exactly one value.  The
-    'Latest' constructor takes a single argument (@0@, in the above example)
+    'latest' selects a mailbox that always stores exactly one value.  The
+    'latest' function takes a single argument (@0@, in the above example)
     specifying the starting value to store in the mailbox.  'send' overrides the
     currently stored value and 'recv' peeks at the latest stored value without
     consuming it.  In the above example the @outputDevice@ periodically peeks at    the latest value stashed inside the mailbox:
@@ -578,10 +578,11 @@ import Data.Monoid
     Instead, if there is no room 'send' will remove the oldest message from the
     mailbox to make room for a new message.
 
-    The 'New' mailbox is like the 'Newest' mailbox, except optimized for the
-    special case where you want to store a single message.  You can use 'New' to
-    read from a source that might potentially update rapidly, but still sleep if
-    the source has no new values:
+    The 'New' mailbox is like the 'Newest' mailbox, except optimized
+    for the special case where you want to store a single message.  You
+    can use 'newest' with a size of 1 to read from a source that might
+    potentially update rapidly, but still sleep if the source has no new
+    values:
 
 > inputDevice :: Producer Integer IO ()
 > inputDevice = do
@@ -590,7 +591,7 @@ import Data.Monoid
 >     each [101..]                -- More rapid updates
 >
 > main = do
->     (output, input) <- spawn New
+>     (output, input) <- spawn (newest 1)
 >     ...
 
     When the source goes quiet, the 'Input' will now block and wait, and will
@@ -614,7 +615,7 @@ import Data.Monoid
     For example, suppose that we have the following callback-based function:
 
 > import Control.Monad
-> 
+>
 > onLines :: (String -> IO a) -> IO b
 > onLines callback = forever $ do
 >     str <- getLine
@@ -626,13 +627,13 @@ import Data.Monoid
 > import Pipes
 > import Pipes.Concurrent
 > import qualified Pipes.Prelude as P
-> 
+>
 > onLines' :: Producer String IO ()
 > onLines' = do
 >     (output, input) <- lift $ spawn Single
 >     lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >     fromInput input
-> 
+>
 > main = runEffect $ onLines' >-> P.takeWhile (/= "quit") >-> P.stdoutLn
 
     Now we can stream from the callback as if it were an ordinary 'Producer':
@@ -667,10 +668,10 @@ import Data.Monoid
 > import Pipes
 > import Pipes.Concurrent
 > import qualified Pipes.Prelude as P
-> 
+>
 > main = do
->     (out1, in1) <- spawn Unbounded
->     (out2, in2) <- spawn Unbounded
+>     (out1, in1) <- spawn unbounded
+>     (out2, in2) <- spawn unbounded
 >     a1 <- async $ do
 >         runEffect $ (each [1,2] >> fromInput in1) >-> toOutput out2
 >         performGC
@@ -751,7 +752,7 @@ import Data.Monoid
 >            Quit   -> return ()
 >
 >main = do
->    (output, input) <- spawn Unbounded
+>    (output, input) <- spawn unbounded
 >
 >    forkIO $ do runEffect $ lift user >~  toOutput output
 >                performGC
@@ -780,9 +781,9 @@ import Data.Monoid
 >user = P.stdinLn >-> P.takeWhile (/= "quit")
 >
 >main = do
->--  (output, input) <- spawn Unbounded
+>--  (output, input) <- spawn unbounded
 >--  (output, input) <- spawn Single
->    (output, input) <- spawn (Bounded 100)
+>    (output, input) <- spawn (bounded 100)
 >
 >    as <- forM [1..3] $ \i ->
 >--        async $ do runEffect $ fromInput input  >-> worker i
@@ -816,7 +817,7 @@ import Data.Monoid
 >        threadDelay 1000000
 >
 >main = do
->    (output, input) <- spawn (Latest 0)
+>    (output, input) <- spawn (latest 0)
 >    a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                     performGC
 >    a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
@@ -837,7 +838,7 @@ import Data.Monoid
 >
 >onLines' :: Producer String IO ()
 >onLines' = do
->    (output, input) <- lift $ spawn Single
+>    (output, input) <- lift $ spawn (bounded 1)
 >    lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >    fromInput input
 >
