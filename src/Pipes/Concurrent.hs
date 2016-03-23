@@ -35,6 +35,7 @@ import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
 import qualified Control.Concurrent.STM as S
 import Control.Exception (bracket)
 import Control.Monad (when,void, MonadPlus(..))
+import Data.Functor.Contravariant (Contravariant(contramap))
 import Data.Monoid (Monoid(mempty, mappend))
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
@@ -87,6 +88,11 @@ newtype Output a = Output {
 instance Monoid (Output a) where
     mempty  = Output (\_ -> return False)
     mappend i1 i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+
+-- | This instance is useful for creating new tagged address, similar to elm's
+-- Signal.forwardTo. In fact elm's forwardTo is just 'flip contramap'
+instance Contravariant Output where
+    contramap f (Output a) = Output (a . f)
 
 {-| Convert an 'Output' to a 'Pipes.Consumer'
 
