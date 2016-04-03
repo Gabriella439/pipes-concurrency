@@ -36,7 +36,10 @@ import qualified Control.Concurrent.STM as S
 import Control.Exception (bracket)
 import Control.Monad (when,void, MonadPlus(..))
 import Data.Functor.Contravariant (Contravariant(contramap))
+import Data.Functor.Contravariant.Divisible (
+    Divisible(divide, conquer), Decidable(lose, choose))
 import Data.Monoid (Monoid(mempty, mappend))
+import Data.Void (absurd)
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
@@ -93,6 +96,17 @@ instance Monoid (Output a) where
 -- Signal.forwardTo. In fact elm's forwardTo is just 'flip contramap'
 instance Contravariant Output where
     contramap f (Output a) = Output (a . f)
+
+instance Divisible Output where
+    conquer = Output (\_ -> return False)
+    divide f i1 i2 = Output $ \a -> case f a of
+        (b, c) -> (||) <$> send i1 b <*> send i2 c
+
+instance Decidable Output where
+    lose f = Output (absurd . f)
+    choose f i1 i2 = Output $ \a -> case f a of
+        Left b -> send i1 b
+        Right c -> send i2 c
 
 {-| Convert an 'Output' to a 'Pipes.Consumer'
 
