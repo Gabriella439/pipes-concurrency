@@ -14,6 +14,7 @@ module Pipes.Concurrent (
     -- * Actors
     spawn,
     spawn',
+    withSpawn,
     Buffer(..),
     unbounded,
     bounded,
@@ -32,8 +33,13 @@ import Control.Applicative (
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
 import qualified Control.Concurrent.STM as S
+import Control.Exception (bracket)
 import Control.Monad (when,void, MonadPlus(..))
+import Data.Functor.Contravariant (Contravariant(contramap))
+import Data.Functor.Contravariant.Divisible (
+    Divisible(divide, conquer), Decidable(lose, choose))
 import Data.Monoid (Monoid(mempty, mappend))
+import Data.Void (absurd)
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
 
@@ -85,6 +91,22 @@ newtype Output a = Output {
 instance Monoid (Output a) where
     mempty  = Output (\_ -> return False)
     mappend i1 i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+
+-- | This instance is useful for creating new tagged address, similar to elm's
+-- Signal.forwardTo. In fact elm's forwardTo is just 'flip contramap'
+instance Contravariant Output where
+    contramap f (Output a) = Output (a . f)
+
+instance Divisible Output where
+    conquer = Output (\_ -> return False)
+    divide f i1 i2 = Output $ \a -> case f a of
+        (b, c) -> (||) <$> send i1 b <*> send i2 c
+
+instance Decidable Output where
+    lose f = Output (absurd . f)
+    choose f i1 i2 = Output $ \a -> case f a of
+        Left b -> send i1 b
+        Right c -> send i2 c
 
 {-| Convert an 'Output' to a 'Pipes.Consumer'
 
@@ -202,6 +224,20 @@ spawn' buffer = do
         _recv   = readOrEnd   <* readTVar rRecv
     return (Output _send, Input _recv, seal)
 {-# INLINABLE spawn' #-}
+
+{-| 'withSpawn' passes its enclosed action an 'Output' and 'Input' like you'd get from 'spawn',
+    but automatically @seal@s them after the action completes.  This can be used when you need the
+    @seal@ing behavior available from 'spawn\'', but want to work at a bit higher level:
+
+> withSpawn buffer $ \(output, input) -> ...
+
+    'withSpawn' is exception-safe, since it uses 'bracket' internally.
+-}
+withSpawn :: Buffer a -> ((Output a, Input a) -> IO r) -> IO r
+withSpawn buffer action = bracket
+    (spawn' buffer)
+    (\(_, _, seal) -> atomically seal)
+    (\(output, input, _) -> action (output, input))
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
