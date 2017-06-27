@@ -272,7 +272,7 @@ latest :: a -> Buffer a
 latest = Latest
 
 {-| Like @Bounded@, but 'send' never fails (the buffer is never full).
-    Instead, old elements are discard to make room for new elements
+    Instead, old elements are discarded to make room for new elements
 -}
 newest :: Int -> Buffer a
 newest 1 = New
