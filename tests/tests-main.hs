@@ -11,7 +11,7 @@ import System.IO
 import System.Timeout
 
 defaultTimeout :: Int
-defaultTimeout = 200000         -- 0.2 s
+defaultTimeout = 1000000  -- 1 second
 
 labelPrint :: (Show a) => String -> Consumer a IO r
 labelPrint label = forever $ do
