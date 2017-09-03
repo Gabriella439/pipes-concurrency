@@ -3,9 +3,11 @@
 }:
 mkDerivation {
   pname = "pipes-concurrency";
-  version = "2.0.7";
+  version = "2.0.8";
   src = ./.;
-  libraryHaskellDepends = [ base contravariant pipes stm void ];
+  libraryHaskellDepends = [
+    async base contravariant pipes stm void
+  ];
   testHaskellDepends = [ async base pipes stm ];
   description = "Concurrency for the pipes ecosystem";
   license = stdenv.lib.licenses.bsd3;
