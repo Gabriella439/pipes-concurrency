@@ -15,6 +15,7 @@ module Pipes.Concurrent (
     spawn,
     spawn',
     withSpawn,
+    withBuffer,
     Buffer(..),
     unbounded,
     bounded,
@@ -32,7 +33,6 @@ import Control.Applicative (
     Alternative(empty, (<|>)), Applicative(pure, (*>), (<*>)), (<*), (<$>) )
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (atomically, STM, mkWeakTVar, newTVarIO, readTVar)
-import qualified Control.Concurrent.STM as S
 import Control.Exception (bracket)
 import Control.Monad (when,void, MonadPlus(..))
 import Data.Functor.Contravariant (Contravariant(contramap))
@@ -42,6 +42,10 @@ import Data.Monoid (Monoid(mempty, mappend))
 import Data.Void (absurd)
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
 import System.Mem (performGC)
+
+import qualified Control.Concurrent.Async
+import qualified Control.Concurrent.STM   as S
+import qualified Control.Exception
 
 {-| An exhaustible source of values
 
@@ -238,6 +242,21 @@ withSpawn buffer action = bracket
     (spawn' buffer)
     (\(_, _, seal) -> atomically seal)
     (\(output, input, _) -> action (output, input))
+
+-- | A more restrictive alternative to `withSpawn` that prevents deadlocks
+withBuffer
+    :: Buffer a
+    -> (Output a -> IO l)
+    -> (Input  a -> IO r)
+    -> IO (l, r)
+withBuffer buffer fOutput fInput = bracket
+  (spawn' buffer)
+  (\(_, _, seal) -> atomically seal)
+  (\(output, input, seal) ->
+    Control.Concurrent.Async.concurrently
+      (fOutput output `Control.Exception.finally` atomically seal)
+      (fInput  input  `Control.Exception.finally` atomically seal)
+  )
 
 -- | 'Buffer' specifies how to buffer messages stored within the mailbox
 data Buffer a
