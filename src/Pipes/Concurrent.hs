@@ -1,6 +1,6 @@
 -- | Asynchronous communication between pipes
 
-{-# LANGUAGE RankNTypes, Safe #-}
+{-# LANGUAGE CPP, RankNTypes, Safe #-}
 
 module Pipes.Concurrent (
     -- * Inputs and Outputs
@@ -39,8 +39,10 @@ import Data.Functor.Contravariant (Contravariant(contramap))
 import Data.Functor.Contravariant.Divisible (
     Divisible(divide, conquer), Decidable(lose, choose))
 import Data.Monoid (Monoid(mempty, mappend))
+import Data.Semigroup
 import Data.Void (absurd)
 import Pipes (MonadIO(liftIO), yield, await, Producer', Consumer')
+import Prelude hiding (read)
 import System.Mem (performGC)
 
 import qualified Control.Concurrent.Async
@@ -81,9 +83,15 @@ instance MonadPlus Input where
     mzero = empty
     mplus = (<|>)
 
+instance Data.Semigroup.Semigroup (Input a) where
+    (<>) = (<|>)
+
 instance Monoid (Input a) where
     mempty = empty
-    mappend = (<|>)
+
+#if !(MIN_VERSION_base(4,11,0))
+    mappend = (<>)
+#endif
 
 {-| An exhaustible sink of values
 
@@ -92,9 +100,15 @@ instance Monoid (Input a) where
 newtype Output a = Output {
     send :: a -> S.STM Bool }
 
+instance Data.Semigroup.Semigroup (Output a) where
+    i1 <> i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+
 instance Monoid (Output a) where
     mempty  = Output (\_ -> return False)
-    mappend i1 i2 = Output (\a -> (||) <$> send i1 a <*> send i2 a)
+
+#if !(MIN_VERSION_base(4,11,0))
+    mappend = (<>)
+#endif
 
 -- | This instance is useful for creating new tagged address, similar to elm's
 -- Signal.forwardTo. In fact elm's forwardTo is just 'flip contramap'
