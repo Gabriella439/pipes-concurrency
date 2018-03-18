@@ -1,4 +1,4 @@
-# Pipes-Concurrency v2.0.9
+# Pipes-Concurrency v2.0.10
 
 `pipes-concurrency` provides an actor-like concurrency system that interfaces
 with

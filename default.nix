@@ -3,7 +3,7 @@
 }:
 mkDerivation {
   pname = "pipes-concurrency";
-  version = "2.0.9";
+  version = "2.0.10";
   src = ./.;
   libraryHaskellDepends = [
     async base contravariant pipes semigroups stm void
