@@ -1,1 +1,1 @@
-(import ./release.nix).pipes-concurrency.env
+(import ./default.nix).shell
