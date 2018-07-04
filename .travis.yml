@@ -1,1 +1,2 @@
-language: haskell
+language: nix
+script: nix-build release.nix
