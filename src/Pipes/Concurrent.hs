@@ -196,7 +196,7 @@ spawn' :: Buffer a -> IO (Output a, Input a, STM ())
 spawn' buffer = do
     (write, read) <- case buffer of
         Bounded n -> do
-            q <- S.newTBQueueIO n
+            q <- S.newTBQueueIO (fromIntegral n)
             return (S.writeTBQueue q, S.readTBQueue q)
         Unbounded -> do
             q <- S.newTQueueIO
@@ -211,7 +211,7 @@ spawn' buffer = do
             m <- S.newEmptyTMVarIO
             return (\x -> S.tryTakeTMVar m *> S.putTMVar m x, S.takeTMVar m)
         Newest n  -> do
-            q <- S.newTBQueueIO n
+            q <- S.newTBQueueIO (fromIntegral n)
             let write x = S.writeTBQueue q x <|> (S.tryReadTBQueue q *> write x)
             return (write, S.readTBQueue q)
 
