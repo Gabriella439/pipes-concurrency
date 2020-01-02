@@ -11,6 +11,13 @@ module Pipes.Concurrent (
     fromInput,
     toOutput,
 
+    -- * Mailboxes
+    Mailbox(),
+    fromMailbox,
+    toMailbox,
+    send',
+    recv',
+
     -- * Actors
     spawn,
     spawn',
@@ -125,6 +132,43 @@ instance Decidable Output where
     choose f i1 i2 = Output $ \a -> case f a of
         Left b -> send i1 b
         Right c -> send i2 c
+
+{-| Combines a source of values and a sink of values
+
+    'fromMailbox' uses 'Mailbox' as 'Pipes.Producer'
+    'toMailbox' uses 'Mailbox' as 'Pipes.Consumer'
+    'send\'' puts a value in the 'Mailbox'
+    'recv\'' obtains a value from the 'Mailbox'
+-}
+type Mailbox a = (Output a, Input a)
+
+{-| Convert a 'Mailbox' to a 'Pipes.Producer'
+
+    'fromMailbox' terminates when the 'Mailbox' source of values is exhausted.
+-}
+fromMailbox :: (MonadIO m) => Mailbox a -> Producer' a m ()
+fromMailbox = fromInput . snd
+
+{-| Convert a 'Mailbox' to a 'Pipes.Consumer'
+
+    'toMailbox' terminates when the 'Mailbox' sink of values is exhausted.
+-}
+toMailbox :: (MonadIO m) => Mailbox a -> Consumer' a m ()
+toMailbox = toOutput . fst
+
+{-| Put a value in a 'Mailbox'
+
+    'send' returns 'False' if the 'Mailbox' sink is exhausted
+-}
+send' :: Mailbox a -> a -> STM Bool
+send' = send . fst
+
+{-| Obtain a value from a 'Mailbox'
+
+    'recv' returns 'Nothing' if the 'Mailbox' source is exhausted
+-}
+recv' :: Mailbox a -> STM (Maybe a)
+recv' = recv . snd
 
 {-| Convert an 'Output' to a 'Pipes.Consumer'
 

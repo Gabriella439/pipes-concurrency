@@ -193,6 +193,44 @@ import Data.Monoid
 > $
 -}
 
+{- $mailbox
+    When we find it convenient we can use the 'Mailbox' type, which just
+    combines an 'Output' a with an 'Input' a together.
+
+    So, we had the previous code:
+
+> main = do
+>     (output, input) <- spawn Unbounded
+>
+>     forkIO $ do runEffect $ lift user >~  toOutput output
+>                 performGC
+>
+>     forkIO $ do runEffect $ acidRain  >-> toOutput output
+>                 performGC
+>
+>     runEffect $ fromInput input >-> handler
+
+    It could be changed into this equivalent implementation:
+
+> main = do
+>     mailbox <- spawn Unbounded
+>
+>     forkIO $ do runEffect $ lift user >~  toMailbox mailbox
+>                 performGC
+>
+>     forkIO $ do runEffect $ acidRain  >-> toMailbox mailbox
+>                 performGC
+>
+>     runEffect $ fromMailbox mailbox >-> handler
+
+    Behavior continues to be exactly the same, as expected.
+
+    Real implementation can change, but we can think 'Mailbox' as the
+    following type:
+
+> type Mailbox a = (Output a, Input a)
+-}
+
 {- $steal
     You can also have multiple pipes reading from the same mailbox.  Messages
     get split between listening pipes on a first-come first-serve basis.
