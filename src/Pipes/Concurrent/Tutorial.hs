@@ -98,13 +98,13 @@ import Data.Monoid
 @
 
     'spawn' takes a 'Buffer' as an argument which specifies how many messages to
-    store.  In this case we want our mailbox to store an 'Unbounded' number of
+    store.  In this case we want our mailbox to store an 'unbounded' number of
     messages:
 
 > import Pipes.Concurrent
 > 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     ...
 
    'spawn' creates this mailbox in the background and then returns two values:
@@ -166,7 +166,7 @@ import Data.Monoid
     Our final @main@ looks like this:
 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >
 >     forkIO $ do runEffect $ lift user >~  toOutput output
 >                 performGC  
@@ -200,7 +200,7 @@ import Data.Monoid
     So, we had the previous code:
 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >
 >     forkIO $ do runEffect $ lift user >~  toOutput output
 >                 performGC
@@ -213,7 +213,7 @@ import Data.Monoid
     It could be changed into this equivalent implementation:
 
 > main = do
->     mailbox <- spawn Unbounded
+>     mailbox <- spawn unbounded
 >
 >     forkIO $ do runEffect $ lift user >~  toMailbox mailbox
 >                 performGC
@@ -256,7 +256,7 @@ import Data.Monoid
 > import Pipes.Concurrent
 > 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input  >-> worker i
 >                      performGC
@@ -287,7 +287,7 @@ import Data.Monoid
 > user = P.stdinLn >-> P.takeWhile (/= "quit")
 > 
 > main = do
->     (output, input) <- spawn Unbounded
+>     (output, input) <- spawn unbounded
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input >-> worker i
 >                      performGC
@@ -411,16 +411,16 @@ import Data.Monoid
 
 {- $mailbox
     So far we haven't observed 'send' blocking because we only 'spawn'ed
-    'Unbounded' mailboxes.  However, we can control the size of the mailbox to
+    'unbounded' mailboxes.  However, we can control the size of the mailbox to
     tune the coupling between the 'Output' and the 'Input' ends.
 
-    If we set the mailbox 'Buffer' to 'Single', then the mailbox holds exactly
+    If we set the mailbox 'Buffer' to 'bounded 1', then the mailbox holds exactly
     one message, forcing synchronization between 'send's and 'recv's.  Let's
     observe this by sending an infinite stream of values, logging all values to
     the console:
 
 > main = do
->     (output, input) <- spawn Single
+>     (output, input) <- spawn (bounded 1)
 >     as <- forM [1..3] $ \i ->
 >           async $ do runEffect $ fromInput input >-> P.take 2 >-> worker i
 >                      performGC
@@ -448,7 +448,7 @@ import Data.Monoid
 > Worker #3: Processed 4
 > $
 
-    Contrast this with an 'Unbounded' mailbox for the same program, which keeps
+    Contrast this with an 'unbounded' mailbox for the same program, which keeps
     accepting values until downstream finishes processing the first six values:
 
 > $ ./work
@@ -479,12 +479,12 @@ import Data.Monoid
 > 969191
 > $
 
-    You can also choose something in between by using a 'Bounded' mailbox which
-    caps the mailbox size to a fixed value.  Use 'Bounded' when you want mostly
+    You can also choose something in between by using a 'bounded' mailbox which
+    caps the mailbox size to a fixed value.  Use 'bounded' when you want mostly
     loose coupling but still want to guarantee bounded memory usage:
 
 > main = do
->     (output, input) <- spawn (Bounded 100)
+>     (output, input) <- spawn (bounded 100)
 >     ...
 
 > $ ./work
@@ -518,8 +518,8 @@ import Data.Monoid
 > import Data.Monoid
 > 
 > main = do
->     (output1, input1) <- spawn Unbounded
->     (output2, input2) <- spawn Unbounded
+>     (output1, input1) <- spawn unbounded
+>     (output2, input2) <- spawn unbounded
 >     a1 <- async $ do
 >         runEffect $ P.stdinLn >-> toOutput (output1 <> output2)
 >         performGC
@@ -579,21 +579,21 @@ import Data.Monoid
     In this scenario you don't want to enforce a one-to-one correspondence
     between input device updates and output device updates because you don't
     want either end to block waiting for the other end.  Instead, you just need
-    the output device to consult the 'Latest' value received from the 'Input':
+    the output device to consult the 'latest' value received from the 'Input':
 
 > import Control.Concurrent.Async
 > import Pipes.Concurrent
 > 
 > main = do
->     (output, input) <- spawn (Latest 0)
+>     (output, input) <- spawn (latest 0)
 >     a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                      performGC
 >     a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
 >                      performGC
 >     mapM_ wait [a1, a2]
 
-    'Latest' selects a mailbox that always stores exactly one value.  The
-    'Latest' constructor takes a single argument (@0@, in the above example)
+    'latest' selects a mailbox that always stores exactly one value.  The
+    'latest' constructor takes a single argument (@0@, in the above example)
     specifying the starting value to store in the mailbox.  'send' overrides the
     currently stored value and 'recv' peeks at the latest stored value without
     consuming it.  In the above example the @outputDevice@ periodically peeks at    the latest value stashed inside the mailbox:
@@ -606,18 +606,18 @@ import Data.Monoid
 > 10604940
 > $
 
-    A 'Latest' mailbox is never empty because it begins with a default value and
-    'recv' never removes the value from the mailbox.  A 'Latest' mailbox is also
+    A 'latest' mailbox is never empty because it begins with a default value and
+    'recv' never removes the value from the mailbox.  A 'latest' mailbox is also
     never full because 'send' always succeeds, overwriting the previously stored
     value.
 
-    Another alternative is to use the 'Newest' mailbox, which is like a
-    'Bounded' mailbox, except 'send' never blocks (the mailbox is never full).
+    Another alternative is to use the 'newest n' mailbox, which is like a
+    'bounded' mailbox, except 'send' never blocks (the mailbox is never full).
     Instead, if there is no room 'send' will remove the oldest message from the
     mailbox to make room for a new message.
 
-    The 'New' mailbox is like the 'Newest' mailbox, except optimized for the
-    special case where you want to store a single message.  You can use 'New' to
+    The 'newest 1' mailbox is like the 'newest n' mailbox, except optimized for the
+    special case where you want to store a single message.  You can use 'newest 1' to
     read from a source that might potentially update rapidly, but still sleep if
     the source has no new values:
 
@@ -628,7 +628,7 @@ import Data.Monoid
 >     each [101..]                -- More rapid updates
 >
 > main = do
->     (output, input) <- spawn New
+>     (output, input) <- spawn (newest 1)
 >     ...
 
     When the source goes quiet, the 'Input' will now block and wait, and will
@@ -667,7 +667,7 @@ import Data.Monoid
 > 
 > onLines' :: Producer String IO ()
 > onLines' = do
->     (output, input) <- lift $ spawn Single
+>     (output, input) <- lift $ spawn (bounded 1)
 >     lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >     fromInput input
 > 
@@ -707,8 +707,8 @@ import Data.Monoid
 > import qualified Pipes.Prelude as P
 > 
 > main = do
->     (out1, in1) <- spawn Unbounded
->     (out2, in2) <- spawn Unbounded
+>     (out1, in1) <- spawn unbounded
+>     (out2, in2) <- spawn unbounded
 >     a1 <- async $ do
 >         runEffect $ (each [1,2] >> fromInput in1) >-> toOutput out2
 >         performGC
@@ -789,7 +789,7 @@ import Data.Monoid
 >            Quit   -> return ()
 >
 >main = do
->    (output, input) <- spawn Unbounded
+>    (output, input) <- spawn unbounded
 >
 >    forkIO $ do runEffect $ lift user >~  toOutput output
 >                performGC
@@ -818,9 +818,9 @@ import Data.Monoid
 >user = P.stdinLn >-> P.takeWhile (/= "quit")
 >
 >main = do
->--  (output, input) <- spawn Unbounded
->--  (output, input) <- spawn Single
->    (output, input) <- spawn (Bounded 100)
+>--  (output, input) <- spawn unbounded
+>--  (output, input) <- spawn (bounded 1)
+>    (output, input) <- spawn (bounded 100)
 >
 >    as <- forM [1..3] $ \i ->
 >--        async $ do runEffect $ fromInput input  >-> worker i
@@ -854,7 +854,7 @@ import Data.Monoid
 >        threadDelay 1000000
 >
 >main = do
->    (output, input) <- spawn (Latest 0)
+>    (output, input) <- spawn (latest 0)
 >    a1 <- async $ do runEffect $ inputDevice >-> toOutput output
 >                     performGC
 >    a2 <- async $ do runEffect $ fromInput input >-> P.take 5 >-> outputDevice
@@ -875,7 +875,7 @@ import Data.Monoid
 >
 >onLines' :: Producer String IO ()
 >onLines' = do
->    (output, input) <- lift $ spawn Single
+>    (output, input) <- lift $ spawn (bounded 1)
 >    lift $ forkIO $ onLines (\str -> atomically $ send output str)
 >    fromInput input
 >
