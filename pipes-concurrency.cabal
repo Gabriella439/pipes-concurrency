@@ -1,6 +1,6 @@
 Name: pipes-concurrency
 Version: 2.0.13
-Cabal-Version: >=1.8.0.2
+Cabal-Version: >=1.10
 Build-Type: Simple
 License: BSD3
 License-File: LICENSE
@@ -41,6 +41,7 @@ Library
         Pipes.Concurrent,
         Pipes.Concurrent.Tutorial
     GHC-Options: -O2 -Wall -Wcompat
+    Default-Language: Haskell2010
 
 Test-Suite tests
     Type: exitcode-stdio-1.0
@@ -52,3 +53,4 @@ Test-Suite tests
         pipes-concurrency                  ,
         stm               >= 2.4.3 && < 2.6,
         async             >= 2.0   && < 2.3
+    Default-Language: Haskell2010
