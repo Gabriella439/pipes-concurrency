@@ -147,14 +147,14 @@ type Mailbox a = (Output a, Input a)
     'fromMailbox' terminates when the 'Mailbox' source of values is exhausted.
 -}
 fromMailbox :: (MonadIO m) => Mailbox a -> Producer' a m ()
-fromMailbox = fromInput . snd
+fromMailbox (_, input) = fromInput input
 
 {-| Convert a 'Mailbox' to a 'Pipes.Consumer'
 
     'toMailbox' terminates when the 'Mailbox' sink of values is exhausted.
 -}
 toMailbox :: (MonadIO m) => Mailbox a -> Consumer' a m ()
-toMailbox = toOutput . fst
+toMailbox (output, _) = toOutput output
 
 {-| Put a value in a 'Mailbox'
 
