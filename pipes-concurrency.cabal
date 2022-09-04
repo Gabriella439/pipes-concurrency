@@ -4,10 +4,10 @@ Cabal-Version: >=1.10
 Build-Type: Simple
 License: BSD3
 License-File: LICENSE
-Copyright: 2013, 2014 Gabriel Gonzalez
-Author: Gabriel Gonzalez
-Maintainer: Gabriel439@gmail.com
-Bug-Reports: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library/issues
+Copyright: 2013, 2014 Gabriella Gonzalez
+Author: Gabriella Gonzalez
+Maintainer: GenuineGabriella@gmail.com
+Bug-Reports: https://github.com/Gabriella439/Haskell-Pipes-Concurrency-Library/issues
 Synopsis: Concurrency for the pipes ecosystem
 Description: This library provides light-weight concurrency primitives for
   pipes, with the following features:
@@ -26,7 +26,7 @@ Description: This library provides light-weight concurrency primitives for
 Category: Control, Pipes, Concurrency
 Source-Repository head
     Type: git
-    Location: https://github.com/Gabriel439/Haskell-Pipes-Concurrency-Library
+    Location: https://github.com/Gabriella439/Haskell-Pipes-Concurrency-Library
 
 Library
     Hs-Source-Dirs: src
